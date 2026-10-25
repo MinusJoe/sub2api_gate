@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "sub4api.codex-bridge",
+  "name": "Codex Contract Bridge",
+  "version": "0.1.0",
+  "description": "官方契约对齐的 OpenAI OAuth 出站传输：turn-state 捕获/同线程回带、per-account cookie jar、粘性连接池与降智观测",
+  "author": "sub4api",
+  "requires": {
+    "sub2api": ">=1.1.0 <2.0.0",
+    "recommended_sub2api_version": "1.1.14",
+    "tested_sub2api_versions": ["1.1.14"],
+    "plugin_protocol": 1,
+    "transport_api": 1,
+    "ui_bridge": 1
+  },
+  "capabilities": [
+    {
+      "id": "openai.oauth.outbound_transport.v1",
+      "platform": "openai",
+      "account_type": "oauth"
+    }
+  ],
+  "runtimes": {},
+  "ui": { "entrypoint": "ui/index.html" },
+  "files": {}
+}
