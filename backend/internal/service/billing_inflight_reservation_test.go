@@ -450,14 +450,19 @@ func TestInflightEstimate_AccountMappingNoDBAndBoundedMemory(t *testing.T) {
 	require.Zero(t, snap.reads.Load(), "priced models must never trigger account-mapping lookup")
 
 	var before, after runtime.MemStats
-	runtime.GC()
+	// 多轮 GC 促使惰性清扫完成，避免单次 GC 后的残留噪声在慢环境上顶破上限
+	for i := 0; i < 3; i++ {
+		runtime.GC()
+	}
 	runtime.ReadMemStats(&before)
 	const n = 20000
 	for i := 0; i < n; i++ {
 		_, priced := svc.EstimateInflightReservation(ctx, apiKey, InflightEstimateRequest{Model: fmt.Sprintf("rand-%d-%d", i, time.Now().UnixNano()), BodyBytes: 4000, MaxTokens: 1000})
 		require.False(t, priced)
 	}
-	runtime.GC()
+	for i := 0; i < 3; i++ {
+		runtime.GC()
+	}
 	runtime.ReadMemStats(&after)
 	require.Zero(t, repo.dbCalls.Load(), "no direct DB query on the request path")
 	require.Equal(t, int64(n), snap.reads.Load(), "unpriced lookups read the scheduler snapshot only")
