@@ -2559,6 +2559,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_codex_degradation.min_samples", 10)
 	viper.SetDefault("gateway.openai_codex_degradation.degraded_ratio_threshold", 0.5)
 	viper.SetDefault("gateway.openai_codex_degradation.cooldown_seconds", 300)
+	viper.SetDefault("gateway.openai_codex_degradation.cooldown_backoff_multiplier", 2)
+	viper.SetDefault("gateway.openai_codex_degradation.max_cooldown_seconds", 1800)
+	viper.SetDefault("gateway.openai_codex_degradation.downstream_header_enabled", false)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)

@@ -62,14 +62,14 @@ jobs:
             type=gha,scope=sub4api-dev
             type=gha
           cache-to: type=gha,scope=sub4api-dev,mode=max
-      - name: Verify published image and anonymous pull
+      - name: Verify published image (authenticated pull)
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
           VERSION: ${{ steps.meta.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          docker logout ghcr.io
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
           docker buildx imagetools inspect "$IMAGE:dev" | tee /tmp/dev-image-inspect.txt
           grep -F "$DIGEST" /tmp/dev-image-inspect.txt
           docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw > /tmp/dev-image-manifest.json
