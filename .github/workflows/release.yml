@@ -1,0 +1,24 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing branch or tag to release (use main for a new version)
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/main-release.yml
+    with:
+      release-ref: ${{ inputs.tag || github.ref }}
+    secrets: inherit
+

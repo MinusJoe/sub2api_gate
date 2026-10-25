@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex Contract Bridge 配置</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2328; --muted: #6a737d;
+    --border: #d8dee4; --accent: #1f6feb; --ok: #1a7f37; --err: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #161b22; --text: #e6edf3; --muted: #8b949e;
+      --border: #30363d; --accent: #4493f8; --ok: #3fb950; --err: #f85149;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-width: 720px; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.hint { color: var(--muted); margin: 0 0 12px; font-size: 12.5px; }
+  textarea {
+    width: 100%; min-height: 220px; padding: 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg); color: var(--text);
+    font: 12.5px/1.5 ui-monospace, Consolas, monospace; resize: vertical;
+  }
+  textarea.err { border-color: var(--err); }
+  .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  pre.status {
+    margin: 12px 0 0; padding: 10px; border-radius: 6px; background: var(--bg);
+    border: 1px solid var(--border); font: 12px/1.5 ui-monospace, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto;
+  }
+  .msg { margin-top: 10px; font-size: 12.5px; }
+  .msg.ok { color: var(--ok); } .msg.err { color: var(--err); }
+</style>
+</head>
+<body>
+<div class="card" id="app">
+  <h1>Codex Contract Bridge</h1>
+  <p class="hint">官方契约对齐传输：turn-state 捕获/同线程回带、per-account cookie jar、粘性连接池与降智观测。保存后配置立即生效并加密落库。</p>
+  <textarea id="config" spellcheck="false" aria-label="插件配置 JSON"></textarea>
+  <div class="row">
+    <button id="save" class="primary">保存配置</button>
+    <button id="test">测试配置</button>
+    <button id="status">刷新状态</button>
+  </div>
+  <div class="msg" id="msg"></div>
+  <pre class="status" id="statusOut" hidden></pre>
+</div>
+<script>
+"use strict";
+(function () {
+  var token = "";
+  var m = /(?:^#|&)bridge_token=([^&]+)/.exec(window.location.hash.slice(1) ? window.location.hash : window.location.hash);
+  if (!m) m = /bridge_token=([^&]+)/.exec(window.location.hash);
+  if (m) token = decodeURIComponent(m[1]);
+
+  var pending = Object.create(null);
+  var seq = 0;
+  var TIMEOUT_MS = 8000;
+
+  function post(type, params) {
+    return new Promise(function (resolve, reject) {
+      var id = "req-" + (++seq) + "-" + Date.now();
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage(Object.assign({
+        source: "sub2api-plugin-ui",
+        bridge_token: token,
+        type: type,
+        request_id: id
+      }, params || {}), "*");
+      setTimeout(function () {
+        if (pending[id]) {
+          pending[id].reject(new Error("请求超时: " + type));
+          delete pending[id];
+        }
+      }, TIMEOUT_MS);
+    });
+  }
+
+  window.addEventListener("message", function (event) {
+    if (event.source !== window.parent) return;
+    var data = event.data;
+    if (!data || data.source !== "sub2api-plugin-host") return;
+    if (data.bridge_token !== token) return;
+    var waiter = pending[data.request_id];
+    if (!waiter) return;
+    delete pending[data.request_id];
+    if (data.ok === false) waiter.reject(new Error(data.error || data.message || "请求失败"));
+    else waiter.resolve(data);
+  });
+
+  window.addEventListener("unload", function () {
+    pending = Object.create(null);
+  });
+
+  function notify(level, message) {
+    post("ui.notify", { level: level, message: message });
+  }
+  function resize() {
+    var h = document.documentElement.scrollHeight;
+    post("ui.resize", { height: h });
+  }
+
+  var configBox = document.getElementById("config");
+  var msgEl = document.getElementById("msg");
+  var statusOut = document.getElementById("statusOut");
+  var saveBtn = document.getElementById("save");
+  var testBtn = document.getElementById("test");
+  var statusBtn = document.getElementById("status");
+
+  function setMsg(text, ok) {
+    msgEl.textContent = text;
+    msgEl.className = "msg " + (ok ? "ok" : "err");
+  }
+  function setStatus(text) {
+    statusOut.hidden = false;
+    statusOut.textContent = text;
+    resize();
+  }
+  function fmtResult(result) {
+    if (!result) return "(空)";
+    try { return JSON.stringify(result, null, 2); } catch (e) { return String(result); }
+  }
+
+  function load() {
+    post("config.load").then(function (data) {
+      configBox.value = JSON.stringify(data.config || {}, null, 2);
+      configBox.classList.remove("err");
+      resize();
+    }).catch(function (err) {
+      setMsg("读取配置失败: " + err.message, false);
+      configBox.value = "{}";
+    });
+  }
+
+  saveBtn.addEventListener("click", function () {
+    var parsed;
+    try {
+      parsed = JSON.parse(configBox.value);
+    } catch (err) {
+      configBox.classList.add("err");
+      setMsg("JSON 无效: " + err.message, false);
+      return;
+    }
+    configBox.classList.remove("err");
+    saveBtn.disabled = true;
+    post("config.save", { config: parsed }).then(function (data) {
+      configBox.value = JSON.stringify(data.config || parsed, null, 2);
+      setMsg("已保存", true);
+      notify("success", "codex-bridge 配置已保存");
+      resize();
+    }).catch(function (err) {
+      setMsg("保存失败: " + err.message, false);
+      notify("error", "codex-bridge 配置保存失败");
+    }).finally(function () { saveBtn.disabled = false; });
+  });
+
+  testBtn.addEventListener("click", function () {
+    testBtn.disabled = true;
+    setMsg("测试中…", true);
+    post("config.test").then(function (data) {
+      setMsg("测试完成", true);
+      setStatus(fmtResult(data.result));
+    }).catch(function (err) {
+      setMsg("测试失败: " + err.message, false);
+    }).finally(function () { testBtn.disabled = false; });
+  });
+
+  statusBtn.addEventListener("click", function () {
+    statusBtn.disabled = true;
+    post("plugin.status").then(function (data) {
+      setStatus(fmtResult(data.result));
+    }).catch(function (err) {
+      setMsg("状态读取失败: " + err.message, false);
+    }).finally(function () { statusBtn.disabled = false; });
+  });
+
+  post("sub2api.plugin.ready");
+  load();
+  setTimeout(resize, 50);
+})();
+</script>
+</body>
+</html>
