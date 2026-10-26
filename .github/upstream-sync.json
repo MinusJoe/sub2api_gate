@@ -1,0 +1,45 @@
+{
+  "repository": "Wei-Shaw/sub2api",
+  "version": "0.2.18",
+  "commit": "ac1b8f1271be0d674fa6f074403c1410f30a3a81",
+  "previous_commit": "060d0160417782cd962a0c7f460f6cd4565d4916",
+  "sub4api_repository": "MACOS-DO/sub4api",
+  "sub4api_version": "1.1.11",
+  "sub4api_commit": "fd6790fd0ef745f8f46fd91521bad8690ffab0cc",
+  "sub4api_tree": "08a5ff27fe0573cc7565bf05a6d2e4ac0cca13b5",
+  "method": "Three-way source merge from verified upstream tags with Sub4API module paths preserved",
+  "development_branch": "dev",
+  "customizations": [
+    "Current sidebar visibility switches and menu order",
+    "Cache read percentage in the usage latency cell",
+    "Group forced service tier and independent free Ultra Fast billing (Wei-Shaw/sub2api#8201, #8203)",
+    "Kimi Code device OAuth, token refresh, quota and request authentication from the previous dev implementation"
+  ],
+  "infrastructure": [
+    "Existing dev image workflow and startup smoke test"
+  ],
+  "conflict_resolution": {
+    ".github/workflows/release.yml": "Retain Sub4API reusable release workflow",
+    "README.md": "Retain Sub4API project documentation",
+    "backend/cmd/server/VERSION": "Retain Sub4API 1.1.11",
+    "backend/internal/repository/scheduler_cache.go": "Retain Sub4API ticket projection validation before publishing 0.2.18 memoized snapshots",
+    "backend/internal/service/codex_ticket_hypothesis.go": "Use the 0.2.18 default CLI originator when validating the pinned-version request"
+  },
+  "test_compatibility": [
+    "Legacy Redis projection test now forces a cold read to exercise metadata validation under the 0.2.18 process-local memo",
+    "Inherited hypothesis tests expect the 0.2.18 default CLI identity",
+    "Protocol catalog fixtures have unique URLs per request even on coarse clocks",
+    "Stale cooldown fixtures use a distinct reset time even on coarse clocks"
+  ],
+  "feature_sources": {
+    "forced_service_tier": {
+      "issue": "https://github.com/Wei-Shaw/sub2api/issues/8201",
+      "original_commit": "ea23ccfede3bc736fb93c0302ec2dc30e4378beb"
+    },
+    "kimi_oauth": {
+      "previous_dev": "f1ed2e138832fe2ffb927c5280cd9967d6143cc4",
+      "original_commit": "56cc7e15b4e7f8b698ce3550f4ffbdc203b70b21",
+      "scope": "Kimi-specific authorization and gateway integration only"
+    }
+  }
+}
