@@ -105,3 +105,31 @@ func TestDescribeCodexTicketPoolReportsEffectiveAndUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []CodexTicketPoolProxyRef{{ID: 3, Name: "C"}}, view.Effective)
 }
+
+func TestDescribeCodexTicketPoolReportsGlobalSwitchWithoutChangingPool(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		stored     string
+		configured bool
+		want       bool
+	}{
+		{name: "missing defaults off"},
+		{name: "enabled in system settings", stored: "true", want: true},
+		{name: "configuration fallback", configured: true, want: true},
+		{name: "saved off overrides configuration", stored: "false", configured: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings, repo, _ := codexTicketPoolFixture(t)
+			settings.cfg = &config.Config{}
+			settings.cfg.Gateway.OpenAICodexTicket.Enabled = tc.configured
+			if tc.stored != "" {
+				repo.values[SettingKeyOpenAICodexTicketEnabled] = tc.stored
+			}
+			view, err := settings.DescribeCodexTicketPool(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, view.Enabled)
+			require.Equal(t, "custom", view.Mode)
+			require.Equal(t, []int64{1, 2}, view.ProxyIDs)
+		})
+	}
+}

@@ -5,6 +5,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/utils/__tests__/sidebarMenus.spec.ts \
 	src/components/account/__tests__/KimiDeviceAuthorization.spec.ts \
 	src/views/admin/__tests__/ProxiesView.filters.spec.ts \
+	src/components/admin/proxy/__tests__/CodexTicketProxyPool.spec.ts \
 	src/views/admin/__tests__/ProxiesView.testing.spec.ts \
 	src/api/__tests__/admin.proxies.abort.spec.ts \
 	src/components/account/__tests__/CNProviderQuotaCell.spec.ts \
