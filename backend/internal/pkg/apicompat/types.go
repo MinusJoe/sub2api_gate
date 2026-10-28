@@ -21,7 +21,6 @@ type AnthropicRequest struct {
 	Messages    []AnthropicMessage `json:"messages"`
 	Tools       []AnthropicTool    `json:"tools,omitempty"`
 	Stream      bool               `json:"stream,omitempty"`
-	Speed       string             `json:"speed,omitempty"`
 	Temperature *float64           `json:"temperature,omitempty"`
 	TopP        *float64           `json:"top_p,omitempty"`
 	StopSeqs    []string           `json:"stop_sequences,omitempty"`

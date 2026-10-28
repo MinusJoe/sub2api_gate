@@ -255,7 +255,7 @@ func (runner *CodexHypothesisRunner) checkReplayIdentity(request *http.Request) 
 	if err != nil {
 		return fmt.Errorf("read replay request body: %w", err)
 	}
-	defer func() { _ = reader.Close() }()
+	defer reader.Close()
 	var body struct {
 		PromptCacheKey string            `json:"prompt_cache_key"`
 		ClientMetadata map[string]string `json:"client_metadata"`
@@ -364,13 +364,13 @@ func readCodexHypothesisStream(body io.Reader) (string, error) {
 		}
 		switch event.Type {
 		case "response.output_text.delta":
-			_, _ = output.WriteString(event.Delta)
+			output.WriteString(event.Delta)
 		case "response.completed":
 			completed = true
 			if output.Len() == 0 {
 				for _, item := range event.Response.Output {
 					for _, content := range item.Content {
-						_, _ = output.WriteString(content.Text)
+						output.WriteString(content.Text)
 					}
 				}
 			}
@@ -414,7 +414,7 @@ func extractCodexHypothesisCookies(response *http.Response, request *http.Reques
 			continue
 		}
 		cookiePath := cookie.Path
-		if cookiePath != "" && path != cookiePath && (!strings.HasPrefix(path, cookiePath) || (!strings.HasSuffix(cookiePath, "/") && !strings.HasPrefix(strings.TrimPrefix(path, cookiePath), "/"))) {
+		if cookiePath != "" && path != cookiePath && !(strings.HasPrefix(path, cookiePath) && (strings.HasSuffix(cookiePath, "/") || strings.HasPrefix(strings.TrimPrefix(path, cookiePath), "/"))) {
 			continue
 		}
 		if cookie.Secure && request.URL.Scheme != "https" {
@@ -489,7 +489,7 @@ func (runner *CodexHypothesisRunner) RunChallenge(ctx context.Context, challenge
 	if response == nil {
 		return result, errors.New("upstream returned a nil response")
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer response.Body.Close()
 	result.StatusCode = response.StatusCode
 	result.ResponseState = response.Header.Get(openAICodexTurnStateHeader)
 	result.ResponseCookies = append([]string(nil), response.Header.Values("Set-Cookie")...)

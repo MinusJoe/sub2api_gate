@@ -93,14 +93,14 @@ describe('OpsErrorLogTable column order', () => {
     wrapper.unmount()
   })
 
-  it('preserves the usage column order and visibility by default', async () => {
+  it('honors the requested usage column order and visibility', async () => {
     const wrapper = mountTable({})
     await wrapper.setProps({ visibleColumnKeys: ['created_at', 'user', 'message'] })
 
     expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual([
+      'admin.ops.errorLog.time',
       'admin.ops.errorLog.user',
       'admin.ops.errorLog.message',
-      'admin.ops.errorLog.time',
     ])
     wrapper.unmount()
   })

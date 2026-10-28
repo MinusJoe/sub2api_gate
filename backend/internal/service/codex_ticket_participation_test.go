@@ -54,7 +54,7 @@ func TestCodexTicketHarvesterNotificationRescansWithoutBypassingParticipation(t 
 	account.Extra = map[string]any{codexTicketAccountEnabledKey: false}
 	repo := &codexParticipationRepo{account: account, scans: make(chan struct{}, 10)}
 	upstream := &httpUpstreamRecorder{}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, ProbeEnabled: true, HarvestProbeIntervalSeconds: 3600}, upstream)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProbeIntervalSeconds: 3600}, upstream)
 	svc.accountRepo = repo
 	svc.StartOpenAICodexTicketHarvester()
 	defer svc.StopOpenAICodexTicketHarvester()

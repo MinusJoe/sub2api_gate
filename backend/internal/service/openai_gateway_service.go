@@ -24,6 +24,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -84,10 +85,7 @@ var openaiAllowedHeaders = map[string]bool{
 	"x-codex-turn-state":      true,
 	"x-codex-turn-metadata":   true,
 	"x-codex-window-id":       true,
-	// 官方客户端线程头（x-client-request-id=thread_id）：插件出站传输按
-	// (账号,线程) 铸/回带票依赖它，截断会让票退化为账号级跨线程共享。
-	"x-client-request-id":  true,
-	responsesLiteHeaderKey: true,
+	responsesLiteHeaderKey:    true,
 }
 
 // OpenAI passthrough allowed headers whitelist.
@@ -106,9 +104,7 @@ var openaiPassthroughAllowedHeaders = map[string]bool{
 	"x-codex-turn-state":      true,
 	"x-codex-turn-metadata":   true,
 	"x-codex-window-id":       true,
-	// 同 openaiAllowedHeaders：官方线程头必须在两条出站路径上都可达插件。
-	"x-client-request-id":  true,
-	responsesLiteHeaderKey: true,
+	responsesLiteHeaderKey:    true,
 }
 
 // codex_cli_only 拒绝时记录的请求头白名单（仅用于诊断日志，不参与上游透传）
@@ -275,7 +271,6 @@ type OpenAIForwardResult struct {
 	RequestedReasoningEffort *string
 	Stream                   bool
 	OpenAIWSMode             bool
-	TransportDetails         *UsageTransportDetails
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string
@@ -283,16 +278,18 @@ type OpenAIForwardResult struct {
 	Duration              time.Duration
 	FirstTokenMs          *int
 	ClientDisconnect      bool
-	ClientCancelled       bool
 	ImageCount            int
-	ImageSize             string
-	ImageInputSize        string
-	ImageOutputSize       string
-	ImageOutputSizes      []string
-	ImageSizeSource       string
-	ImageSizeBreakdown    map[string]int
-	VideoCount            int
-	VideoResolution       string
+	// ImageEndpoint 标记请求来自专用图片端点；分组 image_count_billing 开关
+	// 只对这类请求生效，混合 Responses/Chat/WS 请求仍按 token 计费。
+	ImageEndpoint      bool
+	ImageSize          string
+	ImageInputSize     string
+	ImageOutputSize    string
+	ImageOutputSizes   []string
+	ImageSizeSource    string
+	ImageSizeBreakdown map[string]int
+	VideoCount         int
+	VideoResolution    string
 	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
 	VideoDurationSeconds int
 	// WebSearchCalls 是 Codex alpha/search 网页搜索调用次数（每次成功请求为 1）。
@@ -516,24 +513,19 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
-	// openaiCodexTickets: accountID\x00model → *openAICodexTicket（当前官方 ~780 字符）。
+	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，292 长度门票。
 	openaiCodexTickets           sync.Map
 	openaiCodexTicketInFlight    sync.Map
 	openaiCodexTicketProxyTurns  sync.Map
 	openaiCodexTicketNextAttempt sync.Map
 	openaiCodexTicketHistory     CodexTicketAttemptRepository
 	openaiCodexTicketLifecycle   CodexTicketLifecycleRepository
+	openaiCodexTicketFlight      singleflight.Group
 	openaiCodexTicketLifecycleMu sync.Mutex
-	// openaiCodexTicketRecycleAt: accountID\x00model → time.Time，限制业务响应回收票的写入频率。
-	openaiCodexTicketRecycleAt sync.Map
-	openaiCodexTicketCancel    context.CancelFunc
-	openaiCodexTicketDone      chan struct{}
-	openaiCodexTicketWake      chan struct{}
-	openaiCodexTicketStopped   bool
-
-	// openaiCodexDegradation: 进程内降智信号聚合（openai_codex_degradation.go）。
-	openaiCodexDegradationOnce sync.Once
-	openaiCodexDegradation     *codexDegradationRegistry
+	openaiCodexTicketCancel      context.CancelFunc
+	openaiCodexTicketDone        chan struct{}
+	openaiCodexTicketWake        chan struct{}
+	openaiCodexTicketStopped     bool
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -777,25 +769,15 @@ func (s *OpenAIGatewayService) getCodexClientRestrictionDetector() CodexClientRe
 	return NewOpenAICodexClientRestrictionDetector(cfg)
 }
 
-func (s *OpenAIGatewayService) getOpenAIWSProtocolResolver(contexts ...context.Context) OpenAIWSProtocolResolver {
+func (s *OpenAIGatewayService) getOpenAIWSProtocolResolver() OpenAIWSProtocolResolver {
+	if s != nil && s.openaiWSResolver != nil {
+		return s.openaiWSResolver
+	}
 	var cfg *config.Config
 	if s != nil {
 		cfg = s.cfg
 	}
-	resolver := NewOpenAIWSProtocolResolver(cfg)
-	if s != nil && s.openaiWSResolver != nil {
-		resolver = s.openaiWSResolver
-	}
-	snapshot := s.openAIWSModeRouterSnapshot(firstOpenAIWSModeRouterContext(contexts))
-	if current, ok := resolver.(*defaultOpenAIWSProtocolResolver); ok {
-		copy := *current
-		copy.modeRouter = &snapshot
-		return &copy
-	}
-	if !snapshot.valid {
-		return &defaultOpenAIWSProtocolResolver{cfg: cfg, modeRouter: &snapshot}
-	}
-	return resolver
+	return NewOpenAIWSProtocolResolver(cfg)
 }
 
 func classifyOpenAIWSReconnectReason(err error) (string, bool) {

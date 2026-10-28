@@ -1350,10 +1350,7 @@ func (s *SettingService) GetOpenAICodexTicketAllowWithoutTicket(ctx context.Cont
 	if err != nil || ctx.Err() != nil {
 		return fallback
 	}
-	if allow, ok := value.(bool); ok {
-		return allow
-	}
-	return fallback
+	return value.(bool)
 }
 
 func (s *SettingService) InvalidateOpenAICodexTicketAllowCache() {

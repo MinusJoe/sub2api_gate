@@ -129,7 +129,6 @@
             <span data-testid="request-type-badge" class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getRequestTypeBadgeClass(row)">
               {{ getRequestTypeLabel(row) }}
             </span>
-            <UsageTransportBadge :details="row.transport_details" />
             <span
               v-if="row.native_compaction_v2"
               data-testid="native-compaction-badge"
@@ -251,10 +250,8 @@
               <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
               <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
-              <span class="text-gray-400 dark:text-gray-500" :title="t('usage.sessionOutputTpsHint', { count: row.session_tps_request_count || 0 })">{{ t('usage.sessionOutputTps') }}</span>
-              <span data-testid="session-output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageSessionOutputRate(row) }}</span>
-              <span class="text-gray-400 dark:text-gray-500" :title="t('usage.cacheRatioHint')">{{ t('usage.cacheRatio') }}</span>
-              <span data-testid="cache-ratio" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageCacheRate(row) }}</span>
+              <span class="text-gray-400 dark:text-gray-500" :title="t('usage.cacheReadRatioHint')">{{ t('usage.cacheReadRatio') }}</span>
+              <span data-testid="cache-read-ratio" class="font-medium tabular-nums text-sky-600 dark:text-sky-400">{{ formatUsageCacheReadRatio(row) }}</span>
             </div>
           </div>
         </template>
@@ -504,26 +501,6 @@
             <span class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.service_tier, t) }}</span>
           </div>
           <div class="flex items-center justify-between gap-6">
-            <span class="text-gray-400">{{ t('usage.upstreamServiceTier') }}</span>
-            <span v-if="tooltipData?.upstream_service_tier" class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.upstream_service_tier, t) }}</span>
-            <span v-else class="font-medium text-gray-500">{{ t('usage.upstreamServiceTierUnknown') }}</span>
-          </div>
-          <div class="flex items-center justify-between gap-6">
-            <span class="text-gray-400">{{ t('usage.transport') }}</span>
-            <span class="font-semibold">
-              <UsageTransportBadge :details="tooltipData?.transport_details" />
-            </span>
-          </div>
-          <div v-if="fastChannel !== 'none'" class="flex items-center justify-between gap-6">
-            <span class="text-gray-400">{{ t('usage.fastChannel') }}</span>
-            <span class="font-semibold" :class="fastChannel === 'ws' ? 'text-emerald-400' : 'text-amber-400'">
-              {{ getUsageFastChannelLabel(fastChannel, t) }}
-            </span>
-          </div>
-          <div v-if="fastChannel !== 'none'" class="text-[10px] leading-relaxed text-gray-500">
-            {{ t('usage.fastChannelHint') }}
-          </div>
-          <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.rate') }}</span>
             <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.rate_multiplier ?? 1) }}x</span>
           </div>
@@ -566,9 +543,8 @@ import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
-import { getUsageFastChannel, getUsageFastChannelLabel, getUsageServiceTierLabel } from '@/utils/usageServiceTier'
+import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
-import UsageTransportBadge from '@/components/usage/UsageTransportBadge.vue'
 import {
   LATENCY_BAR_CLASSES,
   LATENCY_BAR_FROM_CLASSES,
@@ -577,8 +553,7 @@ import {
   durationSeverity,
   firstTokenSeverity,
   formatUsageOutputRate,
-  formatUsageSessionOutputRate,
-  formatUsageCacheRate,
+  formatUsageCacheReadRatio,
 } from '@/utils/latencyHealth'
 import {
   BILLING_MODE_TOKEN,
@@ -724,13 +699,6 @@ const copyUpstreamRequestId = (upstreamRequestId: string) =>
 const tooltipVisible = ref(false)
 const tooltipPosition = ref({ x: 0, y: 0 })
 const tooltipData = ref<AdminUsageLog | null>(null)
-// Fast/Ultra Fast only reaches the priority scheduler over the upstream WS path;
-// show that transport explicitly instead of relying on the uninformative echo.
-const fastChannel = computed(() => {
-  const upstream = tooltipData.value?.transport_details?.upstream
-  if (upstream !== 'http' && upstream !== 'ws') return 'none'
-  return getUsageFastChannel(tooltipData.value?.service_tier, upstream === 'ws')
-})
 
 // Tooltip state - token
 const tokenTooltipVisible = ref(false)

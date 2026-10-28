@@ -3333,7 +3333,7 @@
         </div>
       </div>
 
-      <OpenAIRequestTimezoneField v-if="form.platform === 'openai'" v-model="openAIRequestTimezone" />
+      <OpenAIRequestTimezoneField v-if="form.platform === 'openai'" v-model="openAIRequestTimezone" v-model:mode="openAIRequestTimezoneMode" />
 
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
@@ -3383,23 +3383,11 @@
             </p>
           </div>
           <div class="w-52">
-            <Select v-model="openaiResponsesWebSocketV2Mode" :options="availableOpenAIWSModeOptions" />
+            <Select v-model="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" />
           </div>
         </div>
       </div>
 
-      <div v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')" class="space-y-1">
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-          <input v-model="openaiNativeWSPreferred" type="checkbox" data-testid="create-native-ws-preferred" class="text-primary-600" @change="applyNativeWSPreferredPreset" />
-          {{ t('admin.accounts.openai.nativeWSPreferred') }}
-        </label>
-        <p v-if="openaiNativeWSPreferred" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.nativeWSPreferredHint') }}</p>
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-          <input v-model="openaiNativeWSOnly" type="checkbox" data-testid="create-native-ws-only" class="text-primary-600" @change="applyNativeWSPreset" />
-          {{ t('admin.accounts.openai.nativeWSOnly') }}
-        </label>
-        <p v-if="openaiNativeWSOnly" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.nativeWSOnlyHint') }}</p>
-      </div>
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
@@ -4210,6 +4198,7 @@ import type {
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability,
+  OpenAIRequestTimezoneMode,
   TempUnschedulableScope
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -4769,6 +4758,7 @@ const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
 const openAIRequestTimezone = ref('Asia/Singapore')
+const openAIRequestTimezoneMode = ref<OpenAIRequestTimezoneMode>('follow_proxy')
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -4779,8 +4769,6 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
-const openaiNativeWSOnly = ref(false)
-const openaiNativeWSPreferred = ref(false)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 type CodexTicketAccountPolicy = 'inherit' | 'allow' | 'deny'
 const codexTicketAccountPolicy = ref<CodexTicketAccountPolicy>('inherit')
@@ -5013,28 +5001,9 @@ const openaiResponsesWebSocketV2Mode = computed({
   }
 })
 
-const availableOpenAIWSModeOptions = computed(() => {
-  if (openaiNativeWSPreferred.value) return openAIWSModeOptions.value.filter(option => option.value === OPENAI_WS_MODE_CTX_POOL)
-  if (openaiNativeWSOnly.value) return openAIWSModeOptions.value.filter(option => option.value === OPENAI_WS_MODE_CTX_POOL || option.value === OPENAI_WS_MODE_PASSTHROUGH)
-  return openAIWSModeOptions.value
-})
-
 const openAIWSModeHintKey = computed(() =>
   resolveOpenAIWSModeHintKey(openaiResponsesWebSocketV2Mode.value)
 )
-
-const applyNativeWSPreset = () => {
-  if (openaiNativeWSOnly.value) openaiNativeWSPreferred.value = false
-  if (openaiNativeWSOnly.value) openaiResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_CTX_POOL
-  if (openaiNativeWSOnly.value && accountCategory.value === 'apikey' && !openAIEndpointCapabilities.value.includes('chat_completions')) openAIEndpointCapabilities.value.push('chat_completions')
-}
-
-const applyNativeWSPreferredPreset = () => {
-  if (!openaiNativeWSPreferred.value) return
-  openaiNativeWSOnly.value = false
-  openaiResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_CTX_POOL
-  if (accountCategory.value === 'apikey' && !openAIEndpointCapabilities.value.includes('chat_completions')) openAIEndpointCapabilities.value.push('chat_completions')
-}
 
 const isOpenAIModelRestrictionDisabled = computed(() =>
   form.platform === 'openai' && openaiPassthroughEnabled.value
@@ -5207,11 +5176,6 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform !== 'openai') {
-      openaiNativeWSOnly.value = false
-      openaiNativeWSPreferred.value = false
-    } else if (openaiNativeWSPreferred.value) applyNativeWSPreferredPreset()
-    else applyNativeWSPreset()
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -5722,6 +5686,7 @@ const resetForm = () => {
   form.notes = ''
   form.platform = 'anthropic'
   openAIRequestTimezone.value = 'Asia/Singapore'
+  openAIRequestTimezoneMode.value = 'follow_proxy'
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
@@ -5784,8 +5749,6 @@ const resetForm = () => {
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
-  openaiNativeWSOnly.value = false
-  openaiNativeWSPreferred.value = false
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
@@ -5855,11 +5818,12 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
-  if (openaiNativeWSOnly.value) extra.openai_native_ws_only = true
-  else delete extra.openai_native_ws_only
-  if (openaiNativeWSPreferred.value) extra.openai_native_ws_preferred = true
-  else delete extra.openai_native_ws_preferred
-  extra.openai_request_timezone = openAIRequestTimezone.value
+  extra.openai_request_timezone_mode = openAIRequestTimezoneMode.value
+  if (openAIRequestTimezoneMode.value === 'fixed') {
+    extra.openai_request_timezone = openAIRequestTimezone.value
+  } else {
+    delete extra.openai_request_timezone
+  }
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)

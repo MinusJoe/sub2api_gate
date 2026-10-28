@@ -126,10 +126,10 @@ func TestCodexTicketWSPassthroughObservesSuccessAndFailure(t *testing.T) {
 			server, done := startPassthroughLifecycleServer(t, ctx, svc, account)
 			defer server.Close()
 			client := dialPassthroughLifecycleClientWithPayload(t, server, `{"type":"response.create","model":"gpt-6-astra","stream":false}`)
-			defer func() { _ = client.CloseNow() }()
+			defer client.CloseNow()
 			if !fail {
 				requirePassthroughUpstreamWrite(t, upstream, 3*time.Second)
-				_ = client.CloseNow()
+				client.CloseNow()
 			}
 			select {
 			case <-done:

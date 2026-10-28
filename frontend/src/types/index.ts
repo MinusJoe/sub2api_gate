@@ -208,7 +208,20 @@ export interface LoginAgreementDocument {
   content_md: string
 }
 
+export interface SidebarMenuVisibility {
+  channels: boolean
+  announcements: boolean
+  redeem_codes: boolean
+  promo_codes: boolean
+  admin_subscriptions: boolean
+  subscriptions: boolean
+  redeem: boolean
+  profile: boolean
+  audit_logs: boolean
+}
+
 export interface PublicSettings {
+  sidebar_menu_visibility?: SidebarMenuVisibility
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean
@@ -594,6 +607,7 @@ export interface Group {
   // 图片生成计费配置
   allow_image_generation: boolean
   allow_batch_image_generation: boolean
+  image_count_billing: boolean
   image_rate_independent: boolean
   image_rate_multiplier: number
   batch_image_discount_multiplier: number
@@ -824,6 +838,7 @@ export interface CreateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -892,6 +907,7 @@ export interface UpdateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -973,6 +989,7 @@ export interface Proxy {
   account_count?: number // Number of accounts using this proxy
   latency_ms?: number
   latency_status?: 'success' | 'failed'
+  latency_checked_at?: number
   latency_message?: string
   ip_address?: string
   country?: string
@@ -1234,6 +1251,51 @@ export interface OpenCodeGoUsageSettings {
 
 export type { BPSCredentialState } from "@/utils/openaiBps"
 
+export type OpenAIRequestTimezoneMode = 'fixed' | 'follow_proxy'
+
+/** 最近一次「跟随 IP 出口」时区检测结果；error 非空表示失败，账号沿用上次的时区。 */
+export interface OpenAIRequestTimezoneDetection {
+  ip?: string
+  country?: string
+  region?: string
+  city?: string
+  timezone?: string
+  proxy_id?: number
+  detected_at: string
+  error?: string
+}
+
+export interface GrokCatalogScope {
+  account_id: number
+  account_type: string
+  endpoint: string
+  fingerprint: string
+}
+
+export interface GrokCatalogAttempt {
+  started_at: string
+  finished_at: string
+  status: string
+  error_code?: string
+  scope?: GrokCatalogScope
+}
+
+export interface GrokModelDiagnosticItem {
+  requested: string
+  upstream?: string
+  status: string
+}
+
+export interface GrokModelDiagnostics {
+  state: string
+  endpoint?: string
+  fetched_at?: string
+  expires_at?: string
+  models: string[]
+  last_attempt?: GrokCatalogAttempt
+  mappings: GrokModelDiagnosticItem[]
+}
+
 export interface Account {
   id: number
   name: string
@@ -1267,6 +1329,8 @@ export interface Account {
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     openai_request_timezone?: string
+    openai_request_timezone_mode?: OpenAIRequestTimezoneMode
+    openai_request_timezone_detected?: OpenAIRequestTimezoneDetection
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean
@@ -1394,6 +1458,8 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+
+  grok_model_diagnostics?: GrokModelDiagnostics
 }
 
 // The admin account list may return this compact shape when lite=1. Detail
@@ -1787,14 +1853,6 @@ export interface CodexSessionImportResult {
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
 export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber' | 'live'
-
-export interface UsageTransportDetails {
-  client: 'http' | 'ws'
-  upstream: 'http' | 'ws'
-  mode?: 'ctx_pool' | 'passthrough' | 'http_bridge' | 'http_ws_bridge'
-  fallback_reason?: 'large_payload' | 'plugin_http_bridge' | 'provider_http_bridge' | 'ws_failure'
-  client_ws_failure?: { attempt_id: string; evidence: 'receipt_v1' }
-}
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
@@ -1833,7 +1891,6 @@ export interface UsageLog {
   request_type?: UsageRequestType
   stream: boolean
   openai_ws_mode?: boolean
-  transport_details?: UsageTransportDetails | null
   native_compaction_v2: boolean
   duration_ms: number | null
   first_token_ms: number | null
@@ -1853,9 +1910,6 @@ export interface UsageLog {
   // User-Agent
   user_agent: string | null
   ip_address?: string | null
-  session_id?: string | null
-  session_average_output_tps?: number | null
-  session_tps_request_count?: number
 
   // Cache TTL Override
   cache_ttl_overridden: boolean
@@ -1880,7 +1934,6 @@ export interface AdminUsageLog extends UsageLog {
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null
-  upstream_service_tier?: string | null
   upstream_model_mismatch?: boolean | null
   model_mapping_chain?: string | null
   upstream_request_id?: string | null
@@ -2504,15 +2557,10 @@ export interface TotpLogin2FARequest {
 
 // ==================== Scheduled Test Types ====================
 
-export type ScheduledTestType = 'account_test' | 'codex_diagnostic'
-
 export interface ScheduledTestPlan {
   id: number
   account_id: number
-  test_type: ScheduledTestType
   model_id: string
-  models: string[]
-  api_key_id: number | null
   cron_expression: string
   enabled: boolean
   max_results: number
@@ -2526,14 +2574,9 @@ export interface ScheduledTestPlan {
 export interface ScheduledTestResult {
   id: number
   plan_id: number
-  model_id: string
   status: string
   response_text: string
   error_message: string
-  predicted_model: string
-  probability: number | null
-  reason: string
-  http_status: number
   latency_ms: number
   started_at: string
   finished_at: string
@@ -2542,10 +2585,7 @@ export interface ScheduledTestResult {
 
 export interface CreateScheduledTestPlanRequest {
   account_id: number
-  test_type?: ScheduledTestType
-  model_id?: string
-  models?: string[]
-  api_key_id?: number | null
+  model_id: string
   cron_expression: string
   enabled?: boolean
   max_results?: number
@@ -2553,10 +2593,7 @@ export interface CreateScheduledTestPlanRequest {
 }
 
 export interface UpdateScheduledTestPlanRequest {
-  test_type?: ScheduledTestType
   model_id?: string
-  models?: string[]
-  api_key_id?: number | null
   cron_expression?: string
   enabled?: boolean
   max_results?: number

@@ -15,7 +15,6 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/apicompat"
 	"github.com/MACOS-DO/sub4api/internal/pkg/claude"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
-	"github.com/MACOS-DO/sub4api/internal/pkg/openai"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -26,7 +25,7 @@ import (
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
 // the response back to Anthropic Messages format. This enables Claude Code
 // clients to access OpenAI models through the standard /v1/messages endpoint.
-func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
+func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
@@ -98,13 +97,6 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 	if err := json.Unmarshal(body, &anthropicReq); err != nil {
 		return nil, fmt.Errorf("parse anthropic request: %w", err)
 	}
-	// Preserve only projected client metadata before compat/model normalization.
-	// The private context never retains the parsed request or its content.
-	var clientDiagnosticHeaders http.Header
-	if c != nil && c.Request != nil {
-		clientDiagnosticHeaders = c.Request.Header
-	}
-	ctx = withOpenAIWSClientDiagnostic(ctx, &anthropicReq, clientDiagnosticHeaders)
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
 	originalModel := anthropicReq.Model
 	applyOpenAICompatModelNormalization(&anthropicReq)
@@ -180,9 +172,8 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 	responsesReq.Stream = true
 	isStream := true
 
-	// 3b. Keep the legacy Fast beta fallback only when body speed is unspecified.
-	// Explicit speed takes precedence; speed=fast is mapped by the converter.
-	if anthropicReq.Speed == "" && containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
+	// 3b. Handle BetaFastMode → service_tier: "priority"
+	if containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
 		responsesReq.ServiceTier = "priority"
 	}
 
@@ -235,11 +226,9 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 		return nil, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	var codexReqBody map[string]any
-	var codexBodySnapshot []byte
 	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
 		var reqBody map[string]any
-		if err := decodeOpenAIJSONUseNumber(responsesBody, &reqBody); err != nil {
+		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
 		}
 		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
@@ -294,10 +283,6 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 		if err != nil {
 			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
 		}
-		// Keep the transform map only while its exact marshaled body is current.
-		// Policies below remain authoritative and may replace responsesBody.
-		codexReqBody = reqBody
-		codexBodySnapshot = responsesBody
 	}
 
 	// For API key accounts (including OpenAI-compatible upstream gateways),
@@ -374,74 +359,6 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, fmt.Errorf("get access token: %w", err)
-	}
-
-	// 5b. The optional HTTP→WS bridge covers all eligible tiers or Fast only,
-	// according to the web setting. The final policy-produced tier is unchanged;
-	// failures before downstream output can safely use the existing HTTP path.
-	if bridgeDecision, bridgeOK := s.resolveAnthropicMessagesWSBridge(ctx, account, upstreamModel, responsesBody); bridgeOK {
-		bridgeReqBody, decodeErr := selectOpenAIMessagesWSRequestBody(responsesBody, codexReqBody, codexBodySnapshot)
-		// WS preparation may mutate nested maps. This is the last use of the
-		// retained map; HTTP fallback and billing use immutable final body bytes.
-		if decodeErr == nil && bridgeReqBody != nil {
-			bridgeReasoningEffort := ""
-			if responsesReq.Reasoning != nil {
-				bridgeReasoningEffort = strings.TrimSpace(responsesReq.Reasoning.Effort)
-			}
-			bridgeFirstOutputTimeout := time.Duration(0)
-			if clientStream && account.Platform == PlatformOpenAI {
-				bridgeFirstOutputTimeout = s.openAIFirstOutputTimeout(bridgeReasoningEffort)
-			}
-			bridgeIsCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) ||
-				(s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
-			restoreTurnState := injectCompatTurnStateForWSBridge(c, compatTurnState)
-			bridgeResult, bridgeErr, bridgeHandled := s.forwardAnthropicMessagesViaFastWS(
-				ctx,
-				c,
-				account,
-				token,
-				bridgeReqBody,
-				promptCacheKey,
-				bridgeDecision,
-				bridgeIsCodexCLI,
-				clientStream,
-				originalModel,
-				billingModel,
-				upstreamModel,
-				startTime,
-				bridgeReasoningEffort,
-				bridgeFirstOutputTimeout,
-			)
-			restoreTurnState()
-			// The WS forwarder may mark a terminal cyber-policy rejection even
-			// before emitting a frame. Preserve the HTTP path's dedicated error
-			// result/usage handling, and never replay this rejection over HTTP.
-			if GetOpsCyberPolicy(c) != nil {
-				if !c.Writer.Written() {
-					mark := GetOpsCyberPolicy(c)
-					writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", mark.Message)
-				}
-				return nil, errOpenAICyberPolicyForwarded
-			}
-			if bridgeHandled {
-				if bridgeErr == nil && bridgeResult != nil {
-					s.finalizeAnthropicMessagesWSResult(
-						ctx,
-						c,
-						account,
-						bridgeResult,
-						responsesBody,
-						promptCacheKey,
-						anthropicDigestChain,
-						anthropicMatchedDigestChain,
-						apiKeyID,
-						compatContinuationEnabled,
-						bridgeReasoningEffort,
-					)
-				}
-				return bridgeResult, bridgeErr
-			}
-		}
 	}
 
 	// 6. Build upstream request
@@ -554,10 +471,6 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// 降智信号：/v1/messages 兼容链路同样采集响应头（事件级由后续 SSE 解析补充）。
-	s.observeCodexDegradationHeaders(c, account, upstreamModel, "messages", resp.Header)
-	defer s.finalizeCodexDegradation(c)
-
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -663,21 +576,6 @@ func (s *OpenAIGatewayService) forwardAsAnthropicWithTransportObservation(
 	return result, handleErr
 }
 
-// selectOpenAIMessagesWSRequestBody transfers the request-local transform map to
-// the WS attempt only when no later body rewrite changed its marshaled snapshot.
-// The caller must not mutate the snapshot/final bytes or reuse the map after WS
-// preparation, which can mutate nested values. All other paths decode as before.
-func selectOpenAIMessagesWSRequestBody(body []byte, codexReqBody map[string]any, codexBodySnapshot []byte) (map[string]any, error) {
-	if codexReqBody != nil && len(codexBodySnapshot) > 0 && bytes.Equal(body, codexBodySnapshot) {
-		return codexReqBody, nil
-	}
-	var reqBody map[string]any
-	if err := decodeOpenAIJSONUseNumber(body, &reqBody); err != nil {
-		return nil, err
-	}
-	return reqBody, nil
-}
-
 func ensureCodexOAuthInstructionsField(reqBody map[string]any) {
 	if reqBody == nil {
 		return
@@ -719,7 +617,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai messages buffered", requestID)
+	finalResponse, usage, acc, prior, err := s.readOpenAICompatBufferedTerminal(resp, c, account, "openai messages buffered", requestID)
 	if err != nil {
 		var readErr *openAICompatBufferedReadError
 		if errors.As(err, &readErr) && readErr != nil {
@@ -736,18 +634,13 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	prior.apply(observer)
 	observer.Observe(finalResponse.Model, true)
 	observer.ObserveServiceTier(finalResponse.ServiceTier, true)
 
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
-		hit, code, msg := detectOpenAICyberPolicy(payload)
-		// The WS forwarder can already have identified a bare error envelope,
-		// whose nested error code is not retained by ResponsesStreamEvent.
-		if mark := GetOpsCyberPolicy(c); mark != nil {
-			hit, code, msg = true, mark.Code, mark.Message
-		}
-		if hit {
+		if hit, code, msg := detectOpenAICyberPolicy(payload); hit {
 			MarkOpsCyberPolicy(c, CyberPolicyMark{
 				Code:           code,
 				Message:        msg,
@@ -793,8 +686,6 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
 
-	// 降智透明头（downstream_header_enabled，默认关）：非流式聚合结果写出前提交。
-	s.applyCodexDegradationDownstreamHeaders(c)
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -894,16 +785,67 @@ func openAICompatTerminalResponse(event *apicompat.ResponsesStreamEvent, payload
 	}
 }
 
+func openAICompatBufferedPriorModel(event *apicompat.ResponsesStreamEvent) (string, bool) {
+	if event == nil || event.Response == nil || isOpenAICompatResponsesTerminalEvent(event.Type) {
+		return "", false
+	}
+	model := strings.TrimSpace(event.Response.Model)
+	if model == "" {
+		return "", false
+	}
+	return model, true
+}
+
+// openAICompatPriorModelAudit 是一次缓冲读取的固定大小审计状态。
+// 只有 Grok 折叠非终止 model：保留一条按既有上限截断的声明和冲突位。
+// 后面的不同声明只置冲突，不按事件数量或原文长度继续保存。
+type openAICompatPriorModelAudit struct {
+	enabled  bool
+	observer upstreamResponseModelObserver
+}
+
+func newOpenAICompatPriorModelAudit(account *Account) openAICompatPriorModelAudit {
+	return openAICompatPriorModelAudit{enabled: account != nil && account.IsGrok()}
+}
+
+func (a *openAICompatPriorModelAudit) record(event *apicompat.ResponsesStreamEvent) {
+	if a == nil || !a.enabled {
+		return
+	}
+	model, ok := openAICompatBufferedPriorModel(event)
+	if !ok {
+		return
+	}
+	a.observer.Observe(model, false)
+}
+
+func (a openAICompatPriorModelAudit) apply(observer *upstreamResponseModelObserver) {
+	if !a.enabled || observer == nil {
+		return
+	}
+	if a.observer.first != "" {
+		observer.Observe(a.observer.first, false)
+	}
+	if a.observer.conflict {
+		observer.conflict = true
+	}
+}
+
 func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	logPrefix string,
 	requestID string,
-) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
+) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, openAICompatPriorModelAudit, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
 	var usage OpenAIUsage
 	if resp == nil || resp.Body == nil {
-		return nil, usage, acc, errors.New("upstream response body is nil")
+		return nil, usage, acc, openAICompatPriorModelAudit{}, errors.New("upstream response body is nil")
+	}
+	prior := newOpenAICompatPriorModelAudit(account)
+	recordPrior := func(event *apicompat.ResponsesStreamEvent) {
+		prior.record(event)
 	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
@@ -981,10 +923,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 					if err := json.Unmarshal([]byte(payload), &event); err == nil {
 						s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 						acc.ProcessEvent(&event)
-						// buffered 聚合路径与流式路径共用降智 observer：事件喂入
-						// readOpenAICompatBufferedTerminal 的调用方（chat/messages
-						// 非流式）此前拿不到事件级信号，这里补齐观测。
-						observeCodexDegradationEvent(c, event.Type, []byte(payload))
+						recordPrior(&event)
 						if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 							if event.Usage != nil {
 								usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
@@ -995,11 +934,11 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 							if response.Usage != nil {
 								usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
 							}
-							return response, usage, acc, nil
+							return response, usage, acc, prior, nil
 						}
 					}
 				}
-				return nil, usage, acc, nil
+				return nil, usage, acc, prior, nil
 			}
 			resetTimeout()
 			if ev.err != nil {
@@ -1009,11 +948,11 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 						zap.String("request_id", requestID),
 					)
 				}
-				return nil, usage, acc, &openAICompatBufferedReadError{cause: ev.err}
+				return nil, usage, acc, prior, &openAICompatBufferedReadError{cause: ev.err}
 			}
 
 			if isOpenAICompatDoneSentinelLine(ev.line) {
-				return nil, usage, acc, nil
+				return nil, usage, acc, prior, nil
 			}
 			frame, ok := parser.AddLine(ev.line)
 			if !ok {
@@ -1033,8 +972,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 			s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
 			acc.ProcessEvent(&event)
-			// 同上：buffered 聚合路径补事件级降智观测。
-			observeCodexDegradationEvent(c, event.Type, []byte(payload))
+			recordPrior(&event)
 
 			if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 				if event.Usage != nil {
@@ -1046,7 +984,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				if response.Usage != nil {
 					usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
 				}
-				return response, usage, acc, nil
+				return response, usage, acc, prior, nil
 			}
 
 		case <-timeoutCh:
@@ -1055,7 +993,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				zap.String("request_id", requestID),
 				zap.Duration("interval", streamInterval),
 			)
-			return nil, usage, acc, fmt.Errorf("stream data interval timeout")
+			return nil, usage, acc, prior, fmt.Errorf("stream data interval timeout")
 		}
 	}
 }
@@ -1157,7 +1095,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
-		observeCodexDegradationEvent(c, event.Type, []byte(payload))
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
 		eventType := strings.TrimSpace(event.Type)

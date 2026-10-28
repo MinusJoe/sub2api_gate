@@ -9,6 +9,7 @@ import type {
   AccountPlatform,
   CustomEndpoint,
   CustomMenuItem,
+  SidebarMenuVisibility,
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
@@ -494,6 +495,7 @@ export interface SystemSettings {
   table_page_size_options: number[];
   backend_mode_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
+  sidebar_menu_visibility: SidebarMenuVisibility;
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
   smtp_host: string;
@@ -852,6 +854,7 @@ export interface UpdateSettingsRequest {
   table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
+  sidebar_menu_visibility?: SidebarMenuVisibility;
   custom_endpoints?: CustomEndpoint[];
   smtp_host?: string;
   smtp_port?: number;
@@ -1325,50 +1328,6 @@ export async function updateOverloadCooldownSettings(
 ): Promise<OverloadCooldownSettings> {
   const { data } = await apiClient.put<OverloadCooldownSettings>(
     "/admin/settings/overload-cooldown",
-    settings,
-  );
-  return data;
-}
-
-// ==================== OpenAI Fast Bridge Settings ====================
-
-export interface OpenAIWSModeRouterSettings {
-  enabled: boolean;
-  override: boolean | null;
-  source: "web" | "config";
-  config_enabled: boolean;
-}
-
-export async function getOpenAIWSModeRouterSettings(): Promise<OpenAIWSModeRouterSettings> {
-  const { data } = await apiClient.get<OpenAIWSModeRouterSettings>("/admin/settings/openai-ws-mode-router");
-  return data;
-}
-
-export async function updateOpenAIWSModeRouterSettings(enabled: boolean | null): Promise<OpenAIWSModeRouterSettings> {
-  const { data } = await apiClient.put<OpenAIWSModeRouterSettings>("/admin/settings/openai-ws-mode-router", { enabled });
-  return data;
-}
-
-/**
- * Opt-in HTTP/SSE request bridge to the upstream Responses WebSocket.
- */
-export interface OpenAIFastBridgeSettings {
-  enabled: boolean;
-  scope: "all" | "fast_only";
-}
-
-export async function getOpenAIFastBridgeSettings(): Promise<OpenAIFastBridgeSettings> {
-  const { data } = await apiClient.get<OpenAIFastBridgeSettings>(
-    "/admin/settings/openai-fast-bridge",
-  );
-  return data;
-}
-
-export async function updateOpenAIFastBridgeSettings(
-  settings: OpenAIFastBridgeSettings,
-): Promise<OpenAIFastBridgeSettings> {
-  const { data } = await apiClient.put<OpenAIFastBridgeSettings>(
-    "/admin/settings/openai-fast-bridge",
     settings,
   );
   return data;

@@ -111,6 +111,17 @@ export async function saveCadence(value: { retry_min_seconds: number; retry_max_
   await apiClient.put('/admin/accounts/codex-ticket-cadence', value)
 }
 
+export type TicketProxySource = 'pool' | 'account'
+
+export async function proxySource(): Promise<{ source: TicketProxySource }> {
+  const { data } = await apiClient.get('/admin/accounts/codex-ticket-proxy-source')
+  return data
+}
+
+export async function saveProxySource(source: TicketProxySource): Promise<void> {
+  await apiClient.put('/admin/accounts/codex-ticket-proxy-source', { source })
+}
+
 export interface TicketParticipation {
   enabled: boolean
   models: Record<string, boolean>
@@ -119,52 +130,4 @@ export interface TicketParticipation {
 export async function saveParticipation(id: number, value: TicketParticipation): Promise<TicketParticipation> {
   const { data } = await apiClient.put(`${base(id)}/codex-ticket-participation`, value)
   return data
-}
-
-// 真实流量降智指标（GET /admin/accounts/codex-degradation/metrics，只读观测聚合）。
-export interface CodexDegradationEntry {
-  account_id: number
-  model: string
-  total: number
-  degraded: number
-  model_mismatch: number
-  safety_buffering: number
-  window_samples: number
-  window_degraded: number
-  window_degraded_ratio: number
-  consecutive_triggers?: number
-  next_cooldown_at?: string
-  last_signal_at: string
-  last_degraded_at?: string
-  last_served_model?: string
-  last_faster_model?: string
-  last_transport?: string
-  last_reasons?: string[]
-  last_rate_limit_reached_type?: string
-  last_active_limit?: string
-  last_credits_balance?: string
-}
-
-export interface CodexDegradationMetrics {
-  config: {
-    enabled: boolean
-    observe_only: boolean
-    window_seconds: number
-    min_samples: number
-    degraded_ratio_threshold: number
-    cooldown_seconds: number
-    cooldown_backoff_multiplier: number
-    max_cooldown_seconds: number
-    downstream_header_enabled: boolean
-  }
-  entries: CodexDegradationEntry[]
-}
-
-export async function codexDegradationMetrics(): Promise<CodexDegradationMetrics> {
-  const { data } = await apiClient.get('/admin/accounts/codex-degradation/metrics')
-  return data
-}
-
-export async function resetCodexDegradationMetrics(): Promise<void> {
-  await apiClient.post('/admin/accounts/codex-degradation/metrics/reset')
 }

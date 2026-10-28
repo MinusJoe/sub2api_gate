@@ -42,7 +42,7 @@ func (r *codexTicketAttemptRepository) ListEvents(ctx context.Context, accountID
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	result, err := scanCodexTicketEvents(rows, size)
 	return result, total, err
 }
@@ -60,10 +60,9 @@ func (r *codexTicketAttemptRepository) listFilteredEvents(ctx context.Context, a
 		args = append(args, model)
 		condition += " AND model=$4"
 	}
-	switch filter {
-	case "success":
+	if filter == "success" {
 		condition += " AND outcome='success'"
-	case "failure":
+	} else if filter == "failure" {
 		condition += " AND outcome IN ('miss','error')"
 	}
 	var total int64
@@ -90,7 +89,7 @@ func (r *codexTicketAttemptRepository) listFilteredEvents(ctx context.Context, a
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	result, err := scanCodexTicketEvents(rows, size)
 	return result, total, err
 }

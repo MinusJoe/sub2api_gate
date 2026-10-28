@@ -30,6 +30,8 @@ func RegisterAdminRoutes(
 	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
 	admin.Use(gin.HandlerFunc(auditLog))
 	admin.Use(middleware.AdminComplianceGuard(settingService))
+	// 受限密钥的账户操作走独立资源校验，普通管理员保持原处理器。
+	admin.Use(h.Admin.Account.ScopedAdminKeyAccounts)
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
@@ -77,7 +79,7 @@ func RegisterAdminRoutes(
 		registerPromoCodeRoutes(admin, h)
 
 		// 系统设置
-		registerSettingsRoutes(admin, h)
+		registerSettingsRoutes(admin, h, stepUpAuth)
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)
@@ -329,6 +331,7 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	groups := admin.Group("/groups")
+	groups.Use(h.Admin.Group.ScopedAdminKeyGroupModels)
 	{
 		groups.GET("", h.Admin.Group.List)
 		groups.GET("/all", h.Admin.Group.GetAll)
@@ -373,9 +376,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/:id", h.Admin.Account.GetByID)
 		accounts.GET("/codex-ticket-cadence", h.Admin.Account.GetCodexTicketCadence)
 		accounts.PUT("/codex-ticket-cadence", h.Admin.Account.UpdateCodexTicketCadence)
-		accounts.GET("/codex-ws-pool-metrics", h.Admin.Account.GetCodexWSPoolMetrics)
-		accounts.GET("/codex-degradation/metrics", h.Admin.Account.GetCodexDegradationMetrics)
-		accounts.POST("/codex-degradation/metrics/reset", h.Admin.Account.ResetCodexDegradationMetrics)
+		accounts.GET("/codex-ticket-proxy-source", h.Admin.Account.GetCodexTicketProxySource)
+		accounts.PUT("/codex-ticket-proxy-source", h.Admin.Account.UpdateCodexTicketProxySource)
 		accounts.GET("/codex-ticket-fingerprint", h.Admin.Account.GetCodexFingerprintVersion)
 		accounts.POST("/codex-ticket-fingerprint/refresh", h.Admin.Account.RefreshCodexFingerprint)
 		accounts.GET("/:id/codex-ticket-history", h.Admin.Account.GetCodexTicketHistory)
@@ -417,6 +419,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/:id/stats", h.Admin.Account.GetStats)
 		accounts.POST("/:id/clear-error", h.Admin.Account.ClearError)
 		accounts.POST("/:id/revert-proxy-fallback", h.Admin.Account.RevertProxyFallback)
+		accounts.POST("/:id/openai-request-timezone/detect", h.Admin.Account.DetectOpenAIRequestTimezone)
 		accounts.GET("/:id/usage", h.Admin.Account.GetUsage)
 		accounts.GET("/:id/today-stats", h.Admin.Account.GetTodayStats)
 		accounts.POST("/usage/batch", h.Admin.Account.GetBatchUsage)
@@ -584,8 +587,9 @@ func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	adminSettings := admin.Group("/settings")
+	registerScopedAdminKeyRoutes(adminSettings, h, stepUpAuth)
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
@@ -598,19 +602,14 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.POST("/email-templates/:event/:locale/restore-official", h.Admin.Setting.RestoreOfficialEmailTemplate)
 		// Admin API Key 管理
 		adminSettings.GET("/admin-api-key", h.Admin.Setting.GetAdminAPIKey)
-		adminSettings.POST("/admin-api-key/regenerate", h.Admin.Setting.RegenerateAdminAPIKey)
-		adminSettings.DELETE("/admin-api-key", h.Admin.Setting.DeleteAdminAPIKey)
+		adminSettings.POST("/admin-api-key/regenerate", gin.HandlerFunc(stepUpAuth), h.Admin.Setting.RegenerateAdminAPIKey)
+		adminSettings.DELETE("/admin-api-key", gin.HandlerFunc(stepUpAuth), h.Admin.Setting.DeleteAdminAPIKey)
 		// 529过载冷却配置
 		adminSettings.GET("/overload-cooldown", h.Admin.Setting.GetOverloadCooldownSettings)
 		adminSettings.PUT("/overload-cooldown", h.Admin.Setting.UpdateOverloadCooldownSettings)
 		// 429默认回避配置
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)
-		// OpenAI fast -> WS 桥接开关（web 控制，默认关闭）
-		adminSettings.GET("/openai-fast-bridge", h.Admin.Setting.GetOpenAIFastBridgeSettings)
-		adminSettings.GET("/openai-ws-mode-router", h.Admin.Setting.GetOpenAIWSModeRouterSettings)
-		adminSettings.PUT("/openai-ws-mode-router", h.Admin.Setting.UpdateOpenAIWSModeRouterSettings)
-		adminSettings.PUT("/openai-fast-bridge", h.Admin.Setting.UpdateOpenAIFastBridgeSettings)
 		// OpenAI OAuth image-tool unavailable cooldown configuration
 		adminSettings.GET("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.GetOpenAIImagesOAuthUnavailableCooldownSettings)
 		adminSettings.PUT("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.UpdateOpenAIImagesOAuthUnavailableCooldownSettings)

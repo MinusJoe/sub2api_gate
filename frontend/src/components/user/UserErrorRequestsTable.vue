@@ -182,7 +182,10 @@ const allColumns = computed<Column[]>(() => [
 
 const columns = computed<Column[]>(() =>
   props.visibleColumnKeys
-    ? allColumns.value.filter((c) => props.visibleColumnKeys!.includes(c.key))
+    ? [...new Set(props.visibleColumnKeys)].flatMap(key => {
+        const column = allColumns.value.find(column => column.key === key)
+        return column ? [column] : []
+      })
     : allColumns.value
 )
 

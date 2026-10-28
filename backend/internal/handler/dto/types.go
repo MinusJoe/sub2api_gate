@@ -112,6 +112,7 @@ type Group struct {
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool    `json:"allow_image_generation"`
 	AllowBatchImageGeneration    bool    `json:"allow_batch_image_generation"`
+	ImageCountBilling            bool    `json:"image_count_billing"`
 	ImageRateIndependent         bool    `json:"image_rate_independent"`
 	ImageRateMultiplier          float64 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier float64 `json:"batch_image_discount_multiplier"`
@@ -334,6 +335,9 @@ type Account struct {
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+
+	// 仅账号详情填充。列表和公共 mapper 不计算，避免把目录诊断扩散到调度响应。
+	GrokModelDiagnostics *service.GrokModelDiagnostics `json:"grok_model_diagnostics,omitempty"`
 }
 
 // AccountListItem is the compact representation returned by the admin account
@@ -466,20 +470,21 @@ type Proxy struct {
 
 type ProxyWithAccountCount struct {
 	Proxy
-	AccountCount   int64  `json:"account_count"`
-	LatencyMs      *int64 `json:"latency_ms,omitempty"`
-	LatencyStatus  string `json:"latency_status,omitempty"`
-	LatencyMessage string `json:"latency_message,omitempty"`
-	IPAddress      string `json:"ip_address,omitempty"`
-	Country        string `json:"country,omitempty"`
-	CountryCode    string `json:"country_code,omitempty"`
-	Region         string `json:"region,omitempty"`
-	City           string `json:"city,omitempty"`
-	QualityStatus  string `json:"quality_status,omitempty"`
-	QualityScore   *int   `json:"quality_score,omitempty"`
-	QualityGrade   string `json:"quality_grade,omitempty"`
-	QualitySummary string `json:"quality_summary,omitempty"`
-	QualityChecked *int64 `json:"quality_checked,omitempty"`
+	AccountCount     int64  `json:"account_count"`
+	LatencyMs        *int64 `json:"latency_ms,omitempty"`
+	LatencyCheckedAt *int64 `json:"latency_checked_at,omitempty"`
+	LatencyStatus    string `json:"latency_status,omitempty"`
+	LatencyMessage   string `json:"latency_message,omitempty"`
+	IPAddress        string `json:"ip_address,omitempty"`
+	Country          string `json:"country,omitempty"`
+	CountryCode      string `json:"country_code,omitempty"`
+	Region           string `json:"region,omitempty"`
+	City             string `json:"city,omitempty"`
+	QualityStatus    string `json:"quality_status,omitempty"`
+	QualityScore     *int   `json:"quality_score,omitempty"`
+	QualityGrade     string `json:"quality_grade,omitempty"`
+	QualitySummary   string `json:"quality_summary,omitempty"`
+	QualityChecked   *int64 `json:"quality_checked,omitempty"`
 }
 
 // AdminProxy 是管理员接口使用的 proxy DTO（包含密码等敏感字段）。
@@ -492,20 +497,21 @@ type AdminProxy struct {
 // AdminProxyWithAccountCount 是管理员接口使用的带账号统计的 proxy DTO。
 type AdminProxyWithAccountCount struct {
 	AdminProxy
-	AccountCount   int64  `json:"account_count"`
-	LatencyMs      *int64 `json:"latency_ms,omitempty"`
-	LatencyStatus  string `json:"latency_status,omitempty"`
-	LatencyMessage string `json:"latency_message,omitempty"`
-	IPAddress      string `json:"ip_address,omitempty"`
-	Country        string `json:"country,omitempty"`
-	CountryCode    string `json:"country_code,omitempty"`
-	Region         string `json:"region,omitempty"`
-	City           string `json:"city,omitempty"`
-	QualityStatus  string `json:"quality_status,omitempty"`
-	QualityScore   *int   `json:"quality_score,omitempty"`
-	QualityGrade   string `json:"quality_grade,omitempty"`
-	QualitySummary string `json:"quality_summary,omitempty"`
-	QualityChecked *int64 `json:"quality_checked,omitempty"`
+	AccountCount     int64  `json:"account_count"`
+	LatencyMs        *int64 `json:"latency_ms,omitempty"`
+	LatencyCheckedAt *int64 `json:"latency_checked_at,omitempty"`
+	LatencyStatus    string `json:"latency_status,omitempty"`
+	LatencyMessage   string `json:"latency_message,omitempty"`
+	IPAddress        string `json:"ip_address,omitempty"`
+	Country          string `json:"country,omitempty"`
+	CountryCode      string `json:"country_code,omitempty"`
+	Region           string `json:"region,omitempty"`
+	City             string `json:"city,omitempty"`
+	QualityStatus    string `json:"quality_status,omitempty"`
+	QualityScore     *int   `json:"quality_score,omitempty"`
+	QualityGrade     string `json:"quality_grade,omitempty"`
+	QualitySummary   string `json:"quality_summary,omitempty"`
+	QualityChecked   *int64 `json:"quality_checked,omitempty"`
 }
 
 type ProxyAccountSummary struct {
@@ -617,8 +623,6 @@ type UsageLog struct {
 	InboundEndpoint *string `json:"inbound_endpoint,omitempty"`
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.
 	UpstreamEndpoint *string `json:"upstream_endpoint,omitempty"`
-	// UpstreamServiceTier is the tier echoed by the upstream response.
-	UpstreamServiceTier *string `json:"upstream_service_tier,omitempty"`
 
 	GroupID        *int64 `json:"group_id"`
 	SubscriptionID *int64 `json:"subscription_id"`
@@ -640,11 +644,10 @@ type UsageLog struct {
 	RateMultiplier            float64 `json:"rate_multiplier"`
 	LongContextBillingApplied bool    `json:"long_context_billing_applied"`
 
-	BillingType      int8                           `json:"billing_type"`
-	RequestType      string                         `json:"request_type"`
-	Stream           bool                           `json:"stream"`
-	OpenAIWSMode     bool                           `json:"openai_ws_mode"`
-	TransportDetails *service.UsageTransportDetails `json:"transport_details,omitempty"`
+	BillingType  int8   `json:"billing_type"`
+	RequestType  string `json:"request_type"`
+	Stream       bool   `json:"stream"`
+	OpenAIWSMode bool   `json:"openai_ws_mode"`
 	// NativeCompactionV2 is true only for requests positively identified at
 	// runtime as the native OpenAI remote compaction v2 wire.
 	NativeCompactionV2 bool `json:"native_compaction_v2"`
@@ -670,9 +673,7 @@ type UsageLog struct {
 	IPAddress *string `json:"ip_address,omitempty"`
 	// SessionID is the explicit client-provided request correlation identifier
 	// (e.g. the session_id / X-Session-Id headers). Omitted when absent.
-	SessionID               *string  `json:"session_id,omitempty"`
-	SessionAverageOutputTPS *float64 `json:"session_average_output_tps"`
-	SessionTPSRequestCount  int64    `json:"session_tps_request_count"`
+	SessionID *string `json:"session_id,omitempty"`
 
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`

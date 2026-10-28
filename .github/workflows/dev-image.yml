@@ -38,7 +38,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push development image
+      - name: Build and push candidate image
         id: image
         uses: docker/build-push-action@v6
         with:
@@ -46,7 +46,7 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE }}:dev
+          tags: ${{ env.IMAGE }}:dev-${{ github.sha }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
@@ -62,7 +62,7 @@ jobs:
             type=gha,scope=sub4api-dev
             type=gha
           cache-to: type=gha,scope=sub4api-dev,mode=max
-      - name: Verify published image (authenticated pull)
+      - name: Verify candidate manifest
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
           VERSION: ${{ steps.meta.outputs.version }}
@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
-          docker buildx imagetools inspect "$IMAGE:dev" | tee /tmp/dev-image-inspect.txt
+          docker buildx imagetools inspect "$IMAGE:dev-$GITHUB_SHA" | tee /tmp/dev-image-inspect.txt
           grep -F "$DIGEST" /tmp/dev-image-inspect.txt
           docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw > /tmp/dev-image-manifest.json
           python3 - <<'PY'
@@ -80,10 +80,22 @@ jobs:
           platforms = {(m.get('platform', {}).get('os'), m.get('platform', {}).get('architecture')) for m in manifest.get('manifests', [])}
           assert {('linux', 'amd64'), ('linux', 'arm64')} <= platforms, platforms
           PY
-          docker run --rm "$IMAGE@$DIGEST" --version 2>&1 | tee /tmp/dev-image-version.txt
-          grep -F "$VERSION" /tmp/dev-image-version.txt
-          grep -F "$GITHUB_SHA" /tmp/dev-image-version.txt
-          docker run --rm "$IMAGE@$DIGEST" /bin/sh -ec 'pg_dump --version; psql --version; test -s /app/resources/model-pricing/model_prices_and_context_window.json'
+      - name: Verify both architectures start with PostgreSQL and Redis
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: bash scripts/ci/verify-dev-image.sh "$IMAGE@$DIGEST"
+      - name: Promote verified image to dev
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --tag "$IMAGE:dev" "$IMAGE@$DIGEST"
+          docker buildx imagetools inspect "$IMAGE:dev" | tee /tmp/promoted-dev-image.txt
+          grep -F "$DIGEST" /tmp/promoted-dev-image.txt
           {
             echo "## Development image published"
             echo

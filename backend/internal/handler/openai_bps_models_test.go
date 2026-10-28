@@ -168,11 +168,7 @@ func TestOpenAIBPSModelsOpenAIShape(t *testing.T) {
 			if mode == "retrieve" {
 				item = data
 			} else {
-				items, ok := data["data"].([]any)
-				require.True(t, ok)
-				require.NotEmpty(t, items)
-				item, ok = items[0].(map[string]any)
-				require.True(t, ok)
+				item = data["data"].([]any)[0].(map[string]any)
 			}
 			require.Equal(t, "model", item["object"])
 			require.NotEmpty(t, item["owned_by"])

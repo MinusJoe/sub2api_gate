@@ -365,6 +365,8 @@ type UpdateSettingsRequest struct {
 	// Plugin management menu visibility switch; plugin runtime is unaffected.
 	PluginManagementEnabled *bool `json:"plugin_management_enabled"`
 
+	SidebarMenuVisibility *service.SidebarMenuVisibility `json:"sidebar_menu_visibility"`
+
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
 
@@ -1283,6 +1285,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	)
 
 	customMenuJSON := previousSettings.CustomMenuItems
+	sidebarMenuVisibility := previousSettings.SidebarMenuVisibility
+	if req.SidebarMenuVisibility != nil {
+		sidebarMenuVisibility = *req.SidebarMenuVisibility
+	}
 	if req.CustomMenuItems != nil {
 		items := *req.CustomMenuItems
 		if len(items) > maxCustomMenuItems {
@@ -1662,6 +1668,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TableDefaultPageSize:                   req.TableDefaultPageSize,
 		TablePageSizeOptions:                   req.TablePageSizeOptions,
 		CustomMenuItems:                        customMenuJSON,
+		SidebarMenuVisibility:                  sidebarMenuVisibility,
 		CustomEndpoints:                        customEndpointsJSON,
 		DefaultConcurrency:                     req.DefaultConcurrency,
 		DefaultBalance:                         req.DefaultBalance,
@@ -2487,6 +2494,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
+		SidebarMenuVisibility:   updatedSettings.SidebarMenuVisibility,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 

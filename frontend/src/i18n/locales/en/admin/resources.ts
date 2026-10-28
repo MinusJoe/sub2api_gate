@@ -37,18 +37,7 @@ export default {
       maxResultsTooltipExample: 'For example, 100 means keeping at most the latest 100 test results. When the 101st result is saved, the oldest one is removed.',
       maxResultsTooltipRange: 'Recommended range: usually 20 to 200. Use 20-50 when you only care about recent health status, or 100-200 if you want a longer trend history.',
       autoRecover: 'Auto Recover',
-      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test',
-      testType: 'Test Type',
-      typeAccountTest: 'Account Connectivity Test',
-      typeCodexDiagnostic: 'Degradation Diagnostic',
-      diagnosticApiKey: 'Billing API Key',
-      diagnosticModels: 'Diagnostic Models',
-      diagnosticNoKeys: 'No API key available for diagnostics',
-      diagnosticNoModels: 'Model fingerprint bank is empty; refresh it from the account diagnostic dialog first',
-      statusNormal: 'Normal',
-      statusDegraded: 'Suspected Degraded',
-      statusUncertain: 'Uncertain',
-      predictedModel: 'Predicted Model'
+      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test'
     },
 
     // Proxies
@@ -129,6 +118,22 @@ export default {
         allStatuses: 'All Status'
       },
       testConnection: 'Test Connection',
+      autoTest: {
+        title: 'Auto speed test',
+        interval: 'Test interval',
+        custom: 'Custom',
+        customSeconds: 'Custom test interval (seconds)',
+        secondsUnit: 'seconds',
+        apply: 'Apply',
+        invalidInterval: 'Enter a whole number of seconds, at least 1.',
+        selectedScope: 'Test {count} selected IPs',
+        filteredScope: 'Test all IPs matching the current filters',
+        countdown: 'Next test in {seconds}s',
+        running: 'Testing…',
+        paused: 'Paused',
+        retry: 'Round incomplete; retrying in {seconds}s',
+        hint: 'Runs on this page only and pauses in the background. Leaving the page or closing the browser stops testing. Each interval starts after the previous round finishes.'
+      },
       qualityCheck: 'Quality Check',
       batchQualityCheck: 'Batch Quality Check',
       batchTest: 'Test All Proxies',

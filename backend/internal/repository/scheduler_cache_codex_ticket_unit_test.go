@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -15,8 +14,6 @@ import (
 func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)
-	now := time.Now()
-	cache.now = func() time.Time { return now }
 	account := service.Account{
 		ID: 991, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 		Extra: map[string]any{
@@ -52,16 +49,6 @@ func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
 	require.NotNil(t, full)
 	require.Contains(t, full.Extra, "codex_turn_ticket:gpt-5.6-sol")
 
-	// A memoized read must preserve the projection marker and ticket eligibility.
-	reused, hit, err := cache.GetSnapshot(ctx, bucket)
-	require.NoError(t, err)
-	require.True(t, hit)
-	require.Len(t, reused, 1)
-	require.NotSame(t, snapshot[0], reused[0])
-	require.True(t, reused[0].SchedulerTicketProjection)
-	require.Equal(t, snapshot[0].Extra, reused[0].Extra)
-	require.True(t, service.OpenAICodexAllowsWithoutTicket(reused[0], "gpt-6-astra", false))
-
 	for _, extra := range []map[string]any{
 		{"codex_allow_without_ticket": false},
 		{"codex_allow_without_ticket": false, service.CodexTicketReadyModelsExtraKey: map[string]bool{"gpt-5.6-sol": true}},
@@ -72,9 +59,9 @@ func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
 		raw, err := json.Marshal(legacy)
 		require.NoError(t, err)
 		require.NoError(t, cache.rdb.Set(ctx, schedulerAccountMetaKey("991"), raw, 0).Err())
-		// Legacy writers do not advance metadata revisions. Such writes become
-		// visible when the bounded in-process snapshot expires.
-		now = now.Add(schedulerSnapshotCacheMaxAge)
+		// Direct legacy writes do not advance 0.2.18's metadata revision. Simulate
+		// a cold read (or expired process-local memo) when checking old projections.
+		cache.dropSnapshotEntry(bucket.String())
 		_, hit, err = cache.GetSnapshot(ctx, bucket)
 		require.NoError(t, err)
 		require.False(t, hit, "old metadata must cause DB fallback and republish")

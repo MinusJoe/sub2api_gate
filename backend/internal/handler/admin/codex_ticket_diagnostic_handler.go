@@ -1,22 +1,27 @@
 package admin
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/pkg/response"
 	"github.com/MACOS-DO/sub4api/internal/server/middleware"
 	"github.com/MACOS-DO/sub4api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func (h *AccountHandler) SetCodexTicketDiagnosticRouter(router http.Handler, keys *service.APIKeyService) {
 	h.codexTicketRouter = router
 	h.codexTicketAPIKeys = keys
-	if h.codexTicketGateway != nil && keys != nil {
-		executor := service.NewCodexDiagnosticExecutor(h.codexTicketGateway, keys)
-		executor.SetRouter(router)
-		h.codexTicketDiagnostic = executor
-	}
 }
 
 type codexDiagnosticItem struct {
@@ -32,29 +37,76 @@ type codexDiagnosticItem struct {
 }
 
 func codexDiagnosticGatewayError(raw []byte) string {
-	return service.CodexDiagnosticGatewayError(raw)
+	if len(raw) > 16<<10 {
+		raw = raw[:16<<10]
+	}
+	for _, path := range []string{"reason", "error.code"} {
+		code := gjson.GetBytes(raw, path).String()
+		if code == "" || len(code) > 64 {
+			continue
+		}
+		for _, character := range code {
+			if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-' || character == '.' {
+				continue
+			}
+			code = ""
+			break
+		}
+		if code != "" {
+			return code
+		}
+	}
+	return ""
 }
 
 func codexDiagnosticOutput(raw []byte) (string, bool) {
-	return service.CodexDiagnosticOutput(raw)
-}
-
-// authorizeCodexDiagnosticAPIKey applies the same billing-key boundary to
-// interactive diagnostics and scheduled diagnostic plan changes.
-func authorizeCodexDiagnosticAPIKey(c *gin.Context, keys *service.APIKeyService, keyID int64) bool {
-	subject, authorized := middleware.GetAuthSubjectFromContext(c)
-	if !authorized || subject.UserID <= 0 {
-		response.ErrorWithDetails(c, http.StatusForbidden, "Admin user required", "FORBIDDEN", nil)
-		return false
-	}
-	if keys != nil {
-		key, err := keys.GetByID(c.Request.Context(), keyID)
-		if err == nil && key != nil && key.UserID == subject.UserID && key.IsActive() && !key.IsExpired() && !key.IsQuotaExhausted() && key.Key != "" {
-			return true
+	completed := false
+	streamed := false
+	var output strings.Builder
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner.Buffer(make([]byte, 4096), 2<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			continue
+		}
+		streamed = true
+		switch gjson.Get(payload, "type").String() {
+		case "response.output_text.delta":
+			output.WriteString(gjson.Get(payload, "delta").String())
+		case "response.completed":
+			completed = true
+			if output.Len() == 0 {
+				gjson.Get(payload, "response.output").ForEach(func(_, message gjson.Result) bool {
+					message.Get("content").ForEach(func(_, part gjson.Result) bool {
+						if part.Get("type").String() == "output_text" {
+							output.WriteString(part.Get("text").String())
+						}
+						return true
+					})
+					return true
+				})
+			}
 		}
 	}
-	response.ErrorWithDetails(c, http.StatusForbidden, "API key unavailable or not owned by this admin", "API_KEY_UNAVAILABLE", nil)
-	return false
+	if streamed {
+		return output.String(), completed && scanner.Err() == nil
+	}
+	var body map[string]any
+	if json.Unmarshal(raw, &body) != nil {
+		return "", false
+	}
+	if gjson.GetBytes(raw, "status").String() != "completed" {
+		return "", false
+	}
+	if text := gjson.GetBytes(raw, "output_text").String(); text != "" {
+		return text, true
+	}
+	return gjson.GetBytes(raw, "output.0.content.0.text").String(), true
 }
 
 func (h *AccountHandler) DiagnoseCodexModels(c *gin.Context) {
@@ -78,7 +130,14 @@ func (h *AccountHandler) diagnoseCodexModels(c *gin.Context, generateChallenge f
 		response.BadRequest(c, "Select an API key and up to 32 models")
 		return
 	}
-	if !authorizeCodexDiagnosticAPIKey(c, h.codexTicketAPIKeys, input.APIKeyID) {
+	subject, authorized := middleware.GetAuthSubjectFromContext(c)
+	if !authorized || subject.UserID <= 0 {
+		response.ErrorWithDetails(c, http.StatusForbidden, "Admin user required", "FORBIDDEN", nil)
+		return
+	}
+	key, err := h.codexTicketAPIKeys.GetByID(c.Request.Context(), input.APIKeyID)
+	if err != nil || key == nil || key.UserID != subject.UserID || !key.IsActive() || key.IsExpired() || key.IsQuotaExhausted() || key.Key == "" {
+		response.ErrorWithDetails(c, http.StatusForbidden, "API key unavailable or not owned by this admin", "API_KEY_UNAVAILABLE", nil)
 		return
 	}
 	allowed, err := service.ModelTraceGPTModels()
@@ -98,47 +157,91 @@ func (h *AccountHandler) diagnoseCodexModels(c *gin.Context, generateChallenge f
 		}
 		seen[model] = true
 	}
-	executor := h.codexTicketExecutor()
-	if executor == nil {
-		response.ErrorWithDetails(c, http.StatusServiceUnavailable, "Codex diagnostic unavailable", "CODEX_DIAGNOSTIC_UNAVAILABLE", nil)
-		return
-	}
-	runResults, runErr := executor.Run(service.WithCodexDiagnosticRequestSource(c.Request.Context(), c.Request.RemoteAddr, c.Request.Host), accountID, input.APIKeyID, input.Models, generateChallenge)
-	if runErr != nil {
-		response.ErrorWithDetails(c, http.StatusBadRequest, runErr.Error(), "CODEX_DIAGNOSTIC_FAILED", nil)
-		return
-	}
-	results := make([]codexDiagnosticItem, 0, len(runResults))
-	for _, r := range runResults {
-		item := codexDiagnosticItem{
-			Model:            r.Model,
-			Status:           r.Status,
-			Reason:           r.Reason,
-			PredictedModel:   r.PredictedModel,
-			ParsedCount:      r.ParsedCount,
-			HTTPStatus:       r.HTTPStatus,
-			GatewayErrorCode: r.GatewayErrorCode,
+	results := make([]codexDiagnosticItem, 0, len(input.Models))
+	for _, model := range input.Models {
+		if c.Request.Context().Err() != nil {
+			break
 		}
-		if r.Probability != nil {
-			item.Probability = *r.Probability
+		item := codexDiagnosticItem{Model: model, Status: "failed"}
+		probeCtx, templateErr := h.codexTicketGateway.PrepareCodexProbeContext(c.Request.Context())
+		if templateErr != nil {
+			item.Reason = "template_unavailable"
+			if errors.Is(templateErr, service.ErrCodexProbeTemplateInvalid) {
+				item.Reason = "template_invalid"
+			}
+			results = append(results, item)
+			continue
+		}
+		challenge, challengeErr := generateChallenge()
+		if challengeErr != nil {
+			item.Reason = "challenge_generation_failed"
+			results = append(results, item)
+			continue
+		}
+		body, probeHeaders, buildErr := h.codexTicketGateway.BuildCodexDiagnosticRequest(probeCtx, accountID, model, challenge)
+		if buildErr != nil {
+			item.Reason = "request_build_failed"
+			if errors.Is(buildErr, service.ErrCodexProbeIdentity) {
+				item.Reason = "identity_resolution_failed"
+			}
+			results = append(results, item)
+			continue
+		}
+		// The normal gateway owns ticket policy, scheduling, injection and invalidation.
+		// Diagnostics only pin the target account and analyze the model response.
+		modelCtx, cancel := context.WithTimeout(service.WithCodexTicketDiagnostic(probeCtx, accountID), 120*time.Second)
+		request, requestErr := http.NewRequestWithContext(modelCtx, http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		if requestErr != nil {
+			cancel()
+			item.Reason = "request_build_failed"
+			results = append(results, item)
+			continue
+		}
+		for name, values := range probeHeaders {
+			request.Header[name] = values
+		}
+		request.Header.Set("Authorization", "Bearer "+key.Key)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Accept", "text/event-stream")
+		request.RemoteAddr = c.Request.RemoteAddr
+		request.Host = c.Request.Host
+		writer := httptest.NewRecorder()
+		h.codexTicketRouter.ServeHTTP(writer, request)
+		cancel()
+		item.HTTPStatus = writer.Code
+		if writer.Code < 200 || writer.Code >= 300 {
+			item.Reason = "gateway_request_failed"
+			item.GatewayErrorCode = codexDiagnosticGatewayError(writer.Body.Bytes())
+			results = append(results, item)
+			continue
+		}
+		output, readErr := io.ReadAll(io.LimitReader(writer.Body, 2<<20))
+		if readErr != nil {
+			item.Reason = "response_read_failed"
+			results = append(results, item)
+			continue
+		}
+		diagnosticText, complete := codexDiagnosticOutput(output)
+		if !complete {
+			item.Reason = "response_incomplete"
+			results = append(results, item)
+			continue
+		}
+		prediction, _, predictErr := service.ModelTracePredictCommitted(diagnosticText, challenge.ExpectedCount)
+		item.ParsedCount = prediction.ParsedCount
+		if predictErr != nil {
+			item.Reason = "insufficient_numbers"
+			results = append(results, item)
+			continue
+		}
+		item.PredictedModel, item.Probability = prediction.Model, prediction.Probability
+		if prediction.Model == model {
+			item.Status = "normal"
+		} else {
+			item.Status = "degraded"
+			item.Reason = "fingerprint_mismatch"
 		}
 		results = append(results, item)
 	}
 	response.Success(c, gin.H{"items": results, "canceled": c.Request.Context().Err() != nil})
-}
-
-// codexTicketExecutor lazily builds the shared diagnostic executor. Tests build
-// AccountHandler structs directly, so the executor is created on first use when
-// the router/keys/gateway were assigned as fields.
-func (h *AccountHandler) codexTicketExecutor() *service.CodexDiagnosticExecutor {
-	if h.codexTicketDiagnostic != nil {
-		return h.codexTicketDiagnostic
-	}
-	if h.codexTicketGateway == nil || h.codexTicketAPIKeys == nil || h.codexTicketRouter == nil {
-		return nil
-	}
-	executor := service.NewCodexDiagnosticExecutor(h.codexTicketGateway, h.codexTicketAPIKeys)
-	executor.SetRouter(h.codexTicketRouter)
-	h.codexTicketDiagnostic = executor
-	return executor
 }

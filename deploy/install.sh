@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/talent668/sub4api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/talent668/sub2api_gate/main/deploy/install.sh | bash
 #
 
 set -e
@@ -31,7 +31,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="talent668/sub4api"
+GITHUB_REPO="talent668/sub2api_gate"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -718,7 +718,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/talent668/sub4api
+Documentation=https://github.com/talent668/sub2api_gate
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 

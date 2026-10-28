@@ -5,6 +5,7 @@ import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
+import ColumnOrderSettings from '@/components/common/ColumnOrderSettings.vue'
 
 const {
   query,
@@ -214,6 +215,24 @@ describe('user UsageView', () => {
     listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
+  })
+
+  it('reorders user columns and keeps required time visible', async () => {
+    localStorage.removeItem('user-usage-column-order')
+    const wrapper = mountUsageView()
+    await flushPromises()
+    await wrapper.get('[data-testid="usage-column-settings"]').trigger('click')
+    const panel = wrapper.findComponent(ColumnOrderSettings)
+    panel.vm.$emit('reorder', ['created_at', 'latency', 'model'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(UsageTable).props('columns').slice(0, 3).map((column: { key: string }) => column.key)).toEqual(['created_at', 'latency', 'model'])
+    expect(panel.get('[data-testid="usage-column-toggle-created_at"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+    const reopened = mountUsageView()
+    await flushPromises()
+    expect(reopened.findComponent(UsageTable).props('columns')[0].key).toBe('created_at')
+    reopened.unmount()
+    localStorage.removeItem('user-usage-column-order')
   })
 
   it('loads logs, stats, model stats, and snapshot on first render', async () => {

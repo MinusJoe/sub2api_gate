@@ -563,8 +563,6 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
-        OpenAIWSModeRouterSettings: true,
-        OpsSystemLogTable: true,
         CodexTicketCadenceSettings: true,
       },
     },
@@ -727,24 +725,43 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
-  it("mounts Debug / Logs only while active and excludes the global save action", async () => {
+  it("defaults configurable sidebar menus to off and saves independent selections", async () => {
     const wrapper = mountView();
     await flushPromises();
-    const initialSaveStyle = wrapper.get('.settings-save-bar').attributes('style');
-    expect(wrapper.find('ops-system-log-table-stub').exists()).toBe(false);
-    await wrapper.get('#settings-tab-debugLogs').trigger('click');
+    const keys = ["channels", "announcements", "redeem_codes", "promo_codes", "admin_subscriptions", "subscriptions", "redeem", "profile", "audit_logs"];
+    for (const key of keys) {
+      expect((wrapper.get(`#sidebar-menu-${key}`).element as HTMLInputElement).checked).toBe(false);
+    }
+    await wrapper.get("#sidebar-menu-channels").setValue(true);
+    await wrapper.get("#sidebar-menu-profile").setValue(true);
+    await wrapper.get("#sidebar-menu-audit_logs").setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
-    expect(wrapper.find('ops-system-log-table-stub').exists()).toBe(true);
-    expect(wrapper.findComponent({ name: 'OpsSystemLogTable' }).props('diagnosticsMode')).toBe(true);
-    expect(wrapper.find('.settings-save-bar').exists() && wrapper.find('.settings-save-bar').isVisible()).toBe(false);
-    await wrapper.get('form').trigger('submit');
-    expect(updateSettings).not.toHaveBeenCalled();
-    await wrapper.get('#settings-tab-general').trigger('click');
+    expect(updateSettings.mock.calls[0]?.[0].sidebar_menu_visibility).toEqual({
+      channels: true, announcements: false, redeem_codes: false, promo_codes: false,
+      admin_subscriptions: false, subscriptions: false, redeem: false, profile: true,
+      audit_logs: true,
+    });
+    expect(fetchPublicSettings).toHaveBeenCalledWith(true);
+    wrapper.unmount();
+  });
+
+  it("loads saved sidebar menu visibility and keeps missing entries off", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      sidebar_menu_visibility: { announcements: true, subscriptions: true },
+    });
+    const wrapper = mountView();
     await flushPromises();
-    expect(wrapper.find('ops-system-log-table-stub').exists()).toBe(false);
-    expect(wrapper.get('.settings-save-bar').attributes('style') || '').toBe(initialSaveStyle || '');
-    expect(enSettings.settings.tabs.debugLogs).toBe('Debug / Logs');
-    expect(zhSettings.settings.tabs.debugLogs).toBe('调试 / 日志');
+    expect((wrapper.get("#sidebar-menu-announcements").element as HTMLInputElement).checked).toBe(true);
+    expect((wrapper.get("#sidebar-menu-subscriptions").element as HTMLInputElement).checked).toBe(true);
+    expect((wrapper.get("#sidebar-menu-redeem").element as HTMLInputElement).checked).toBe(false);
+    expect((wrapper.get("#sidebar-menu-audit_logs").element as HTMLInputElement).checked).toBe(false);
+    await wrapper.get("#sidebar-menu-announcements").setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0].sidebar_menu_visibility.announcements).toBe(false);
+    expect(updateSettings.mock.calls[0]?.[0].sidebar_menu_visibility.subscriptions).toBe(true);
     wrapper.unmount();
   });
 
@@ -1473,7 +1490,6 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
-          OpenAIWSModeRouterSettings: true,
         },
       },
     });

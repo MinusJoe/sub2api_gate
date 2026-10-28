@@ -59,9 +59,6 @@ func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream ht
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		c.Writer.Header().Set("Connection", "keep-alive")
 		c.Writer.Header().Set("X-Accel-Buffering", "no")
-		// 降智透明头（downstream_header_enabled，默认关）：首事件提交响应头前写入；
-		// 覆盖 chat_completions 与 messages 两条兼容链路（共用本闭包）。
-		s.applyCodexDegradationDownstreamHeaders(c)
 		c.Writer.WriteHeader(http.StatusOK)
 	}
 }

@@ -359,6 +359,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
+	sidebarMenuVisibilityJSON, err := json.Marshal(settings.SidebarMenuVisibility)
+	if err != nil {
+		return nil, fmt.Errorf("marshal sidebar menu visibility: %w", err)
+	}
+	updates[SettingKeySidebarMenuVisibility] = string(sidebarMenuVisibilityJSON)
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
 	// 默认配置

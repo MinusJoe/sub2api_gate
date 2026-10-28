@@ -3,6 +3,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
+import ColumnOrderSettings from '@/components/common/ColumnOrderSettings.vue'
+
+vi.mock('@/components/admin/usage/UsageProxyLatencyStrip.vue', () => ({ default: { template: '<div />' } }))
 
 const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
@@ -477,6 +480,40 @@ describe('admin UsageView request ID column visibility', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('restores and changes column order while retaining visibility preferences', async () => {
+    vi.mocked(localStorage.getItem).mockImplementation(key => key === 'usage-column-order' ? '["latency","user"]' : null)
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'UsageTable' })
+    expect(table.props('columns').slice(0, 2).map((column: { key: string }) => column.key)).toEqual(['latency', 'user'])
+    await wrapper.get('[data-testid="usage-column-settings"]').trigger('click')
+    const panel = wrapper.findComponent(ColumnOrderSettings)
+    panel.vm.$emit('reorder', ['created_at', 'latency', 'user'])
+    await wrapper.vm.$nextTick()
+    expect(table.props('columns')[0].key).toBe('created_at')
+    expect(localStorage.setItem).toHaveBeenCalledWith('usage-column-order', expect.stringContaining('created_at'))
+    panel.vm.$emit('reset')
+    await wrapper.vm.$nextTick()
+    expect(table.props('columns')[0].key).toBe('user')
+    expect(table.props('columns').map((column: { key: string }) => column.key)).not.toContain('request_id')
+    wrapper.unmount()
+  })
+
+  it('keeps error-request ordering separate from successful usage records', async () => {
+    listErrorLogs.mockResolvedValue({ items: [], total: 0 })
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await wrapper.get('[data-testid="usage-column-settings"]').trigger('click')
+    wrapper.findComponent(ColumnOrderSettings).vm.$emit('reorder', ['message', 'created_at', 'user'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent({ name: 'OpsErrorLogTable' }).props('visibleColumnKeys').slice(0, 3)).toEqual(['message', 'created_at', 'user'])
+    expect(localStorage.setItem).toHaveBeenCalledWith('usage-error-column-order', expect.any(String))
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[0].trigger('click')
+    expect(wrapper.findComponent({ name: 'UsageTable' }).props('columns')[0].key).toBe('user')
+    wrapper.unmount()
   })
 
   it('keeps request ID hidden by default and allows enabling it from column settings', async () => {

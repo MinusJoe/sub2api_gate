@@ -49,7 +49,7 @@ func (r *codexTicketAttemptRepository) List(ctx context.Context, accountID int64
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close()
 	result := make([]service.CodexTicketAttempt, 0, size)
 	for rows.Next() {
 		a := service.CodexTicketAttempt{AccountID: accountID, Model: model}
@@ -116,7 +116,7 @@ func (r *codexTicketAttemptRepository) Cleanup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = conn.Close() }()
+	defer conn.Close()
 	var acquired bool
 	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", codexTicketMaintenanceLock).Scan(&acquired); err != nil {
 		return err

@@ -4,7 +4,7 @@
 # Copy this file to /etc/sub2api/config.yaml and modify as needed
 # 复制此文件到 /etc/sub2api/config.yaml 并根据需要修改
 #
-# Documentation / 文档: https://github.com/talent668/sub4api
+# Documentation / 文档: https://github.com/MACOS-DO/sub4api
 
 # =============================================================================
 # Server Configuration
@@ -327,29 +327,21 @@ gateway:
   # GPT-5.5 is API-only after its ChatGPT Codex retirement; subscription
   # requests skip this retired fallback and keep their selected model.
   openai_compact_model: "gpt-5.5"
-  # ChatGPT OAuth x-codex-turn-state ticket: relay the client's own ticket by default
-  # (turn_state_mode=relay), or inject a harvested ticket (harvest). Official tickets are
-  # currently ~780-char Fernet blobs. The standalone harvest probe is off by default.
-  # ChatGPT OAuth 门票：默认 relay（只透传客户端自己的票）；harvest 模式才注入已捕获票。
-  # 官方当前票据约 780 字符；独立打票探针 probe_enabled 默认关闭。
+  # ChatGPT OAuth x-codex-turn-state ticket: harvest a 292-length header via a
+  # dedicated HTTP(S)/SOCKS proxy, store it for ttl_seconds (default 3600), then inject
+  # it on residential-IP production requests. Off by default.
+  # ChatGPT OAuth 门票：用独立 HTTP(S)/SOCKS 代理打到 292 长度的 x-codex-turn-state，默认缓存 1 小时，
+  # 再在住宅 IP 业务请求中覆盖该头。默认关闭。
   # Env: GATEWAY_OPENAI_CODEX_TICKET_ENABLED=true
   #      GATEWAY_OPENAI_CODEX_TICKET_HARVEST_PROXY_URL=socks5h://user:pass@host:port
-  # Admin UI 开关（系统设置 → 网关 → Codex 设置 → 打票）可覆盖 enabled，无需重启。
-  # Off: do not capture or inject. On: capture tickets from business responses and
-  # inject them only in harvest mode; relay/off never block scheduling on missing
-  # tickets (no server-side replenishment channel exists there).
-  # 关闭时不回收不注入；开启后仅 harvest 模式注入回收票。relay/off 模式没有补票
-  # 渠道，缺票不得阻断调度（避免 fail_closed 部署在票到期后被锁死且无法恢复）。
+  # Admin UI 开关（系统设置 → 网关 → Codex 设置 → 292 打票）可覆盖 enabled，无需重启。
+  # Off: do not harvest or inject. On: harvest in the background and inject on production requests.
   # The harvest proxy should rotate egress IPs itself (fresh CONNECT per request).
   # Credential shadow accounts retain their existing forwarding policy and are not ticket-gated.
   openai_codex_ticket:
     # Disabled by default. Enable manually in admin settings when needed.
     enabled: false
-    target_length: 780
-    # 独立打票探针（主动伪造 /responses）默认关闭；票走业务响应头回收 + 客户端 relay。
-    probe_enabled: false
-    # relay(默认)|harvest|off：relay 只保留客户端自己的票，harvest 注入已捕获票，off 完全不碰该头。
-    turn_state_mode: relay
+    target_length: 292
     ttl_seconds: 3600
     refresh_before_seconds: 600
     # 后台「系统设置 → 网关 → Codex 设置」可覆盖此值，无需重启。
@@ -362,30 +354,6 @@ gateway:
     models:
       - gpt-6-astra
       - gpt-5.6-sol
-  # 真实流量降智观测（权威信号：OpenAI-Model / X-Openai-Model / x-codex-safety-buffering-* /
-  # x-codex-rate-limit-reached-type / -active-limit / -credits-balance（观测-only）/
-  # response.metadata safety_buffering）。默认 observe-only，只聚合指标不改调度。
-  openai_codex_degradation:
-    enabled: true
-    # true=只观测（默认）；false=窗口内降智比例达标时对 (账号, 模型) 应用冷却。
-    observe_only: true
-    window_seconds: 1200
-    min_samples: 10
-    # 降智样本 = 实际模型与请求模型不一致，或 safety-buffering=true。
-    degraded_ratio_threshold: 0.5
-    # 冷却使用调度器检查的模型 scope（与正常模型限流一致）。
-    cooldown_seconds: 300
-    # 重复触发退避（仅 observe_only=false 时可达，调度内部行为，上游不可见）：
-    # 第 n 次连续触发（n≥1）冷却时长 = cooldown_seconds × cooldown_backoff_multiplier^(n-1)，
-    # 封顶 max_cooldown_seconds；窗口内出现无降智样本即清零连续计数。
-    # 设为 1 关闭累积（每次都按 cooldown_seconds 冷却）。
-    cooldown_backoff_multiplier: 2
-    max_cooldown_seconds: 1800
-    # 下游透明头（默认关，属下游可见契约变化，不改变任何出站行为）：
-    # 开启后向下游响应写入 x-sub4api-codex-served-model=<实际服务模型> 与
-    # x-sub4api-codex-degraded=model_mismatch|safety_buffering（无判定则不写）。
-    # 灰度：先在单实例开启观察下游兼容性；关闭即恢复原响应头集合。
-    downstream_header_enabled: false
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
     max_session_duration_seconds: 3600
@@ -393,7 +361,6 @@ gateway:
   openai_ws:
     # 新版 WS mode 路由（默认关闭）。关闭时忽略账号级 WS mode（包括 http_bridge），保持 legacy ctx_pool 行为。
     # 环境变量：GATEWAY_OPENAI_WS_MODE_ROUTER_V2_ENABLED=true
-    # 系统设置 → 网关中的网页值优先；恢复部署配置后才使用此默认值。
     mode_router_v2_enabled: false
     # ingress 默认模式：off|ctx_pool|passthrough|http_bridge（仅 mode_router_v2_enabled=true 生效；关闭时账号级 WS mode 被忽略）
     # 兼容旧值：shared/dedicated 会按 ctx_pool 处理。

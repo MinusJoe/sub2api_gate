@@ -2,6 +2,7 @@
 set -euo pipefail
 : "${VERSION:?}" "${COMMIT:?}" "${BUILD_DATE:?}"
 root=$(pwd)
+python_cmd="${PYTHON:-python3}"
 archive_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/archive.py"
 output="$root/dist/release"
 mkdir -p "$output"
@@ -25,12 +26,12 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; d
   for name in sub4api sub2api; do
     archive="${name}_${VERSION}_${os}_${arch}"
     if [[ "$os" == windows ]]; then
-      python3 "$archive_script" "$stage" "$output/$archive.zip"
+      "$python_cmd" "$archive_script" "$stage" "$output/$archive.zip"
     else
-      python3 "$archive_script" "$stage" "$output/$archive.tar.gz"
+      "$python_cmd" "$archive_script" "$stage" "$output/$archive.tar.gz"
     fi
   done
   rm -rf "$stage"
   trap - EXIT
 done
-python3 "$archive_script" --checksums "$output"
+"$python_cmd" "$archive_script" --checksums "$output"

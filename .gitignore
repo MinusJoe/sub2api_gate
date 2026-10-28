@@ -1,7 +1,7 @@
-# 本地杂项文档、测试数据和外部项目副本（私有仓：scratch 只保留 *.md 报告）
+# 本地杂项文档、测试数据和外部项目副本
 /docs-local/
-/scratch/*
-!/scratch/*.md
+/scratch/
+/.dsh-purge-backup/
 .codex
 
 # ===================
@@ -135,16 +135,14 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/admin-api-keys.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/BATCH_IMAGE_MVP.md
 !docs/COMPOSITE_GROUPS.md
-!docs/OPENAI_GPT55_RETIREMENT.md
 !docs/openai-bps.md
-!docs/kimi-oauth.md
-!docs/native-ws-controls.md
 !docs/openai-bps-sources.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
@@ -167,18 +165,13 @@ issues/
 
 # Vitest / Vite cache at repo root
 .vite/
-# 私有仓：codex-bridge 插件源码入库（构建产物与签名密钥仍排除，见下）
-/plugins/*
-!/plugins/codex-bridge/
-/plugins/codex-bridge/dist/
-/plugins/codex-bridge/runtimes/
-/plugins/codex-bridge/.zcode/
-signing-key.private
-signing-key.public
+# 本地闭源插件开发目录及构建产物不进入 Sub2API 仓库
+/plugins/
 
 !scripts/
 scripts/*
 !scripts/release/
 !scripts/release/**
+!scripts/sync-upstream-migration-checksums.sh
 __pycache__/
 *.pyc

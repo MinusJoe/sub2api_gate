@@ -38,9 +38,6 @@ func AnthropicToResponsesWithMinOutputTokens(req *AnthropicRequest, minOutputTok
 		Stream:  req.Stream,
 		Include: []string{"reasoning.encrypted_content"},
 	}
-	if req.Speed == "fast" {
-		out.ServiceTier = "priority"
-	}
 
 	// Reasoning models (gpt-5.x) served via the Responses API do not accept
 	// sampling parameters. Sending temperature or top_p causes a 400
@@ -71,7 +68,7 @@ func AnthropicToResponsesWithMinOutputTokens(req *AnthropicRequest, minOutputTok
 
 	// An explicit thinking disable takes precedence over output_config.effort.
 	effort := anthropicReasoningEffort(req)
-	if openai.IsGPT61SolModelSpelling(req.Model) && req.OutputConfig != nil && req.OutputConfig.Effort == "max" && effort != "none" {
+	if (openai.IsGPT61SolModelSpelling(req.Model) || openai.IsGPT61TerraModelSpelling(req.Model)) && req.OutputConfig != nil && req.OutputConfig.Effort == "max" && effort != "none" {
 		effort = "max"
 	}
 	out.Reasoning = &ResponsesReasoning{

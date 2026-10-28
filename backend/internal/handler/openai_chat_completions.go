@@ -48,7 +48,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
-	h.gatewayService.BindOpenAIWSModeRouterSnapshot(c)
 
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {

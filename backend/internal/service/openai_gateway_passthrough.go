@@ -1882,8 +1882,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
-	s.observeCodexDegradationHeaders(c, account, mappedModel, "passthrough", resp.Header)
-	defer s.finalizeCodexDegradation(c)
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
 	// SSE headers
@@ -1894,9 +1892,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	if v := resp.Header.Get("x-request-id"); v != "" {
 		c.Header("x-request-id", v)
 	}
-	// 降智透明头（downstream_header_enabled，默认关）：流开始前随 x-request-id 提交；
-	// 此刻 observer 已含响应头级判定，事件级信号仍继续采集（与主链路同款提交点）。
-	s.applyCodexDegradationDownstreamHeaders(c)
 
 	w := c.Writer
 	flusher, ok := w.(http.Flusher)
@@ -2048,7 +2043,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
-			observeCodexDegradationEvent(c, rawEventType, dataBytes)
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
@@ -2339,16 +2333,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
-	s.observeCodexDegradationHeaders(c, account, mappedModel, "passthrough", resp.Header)
-	defer s.finalizeCodexDegradation(c)
 	if bodyHasSSEFraming(body) {
 		observeOpenAISSEBody(observer, string(body))
-		forEachOpenAISSEFrame(string(body), func(eventType string, payload []byte) {
-			observeCodexDegradationEvent(c, eventType, payload)
-		})
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
-		observeCodexDegradationEvent(c, strings.TrimSpace(gjson.GetBytes(body, "type").String()), body)
 	}
 
 	// Detect SSE responses from upstream and convert to JSON.
@@ -2373,9 +2361,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	}
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, "json", false)
 
-	// 降智透明头（downstream_header_enabled，默认关）：响应体写出前提交；本路径
-	// 事件级信号（SSE 帧/JSON type）已先行观测，故头级+事件级判定均可带上。
-	s.applyCodexDegradationDownstreamHeaders(c)
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
 	contentType := resp.Header.Get("Content-Type")
@@ -2424,9 +2409,6 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		if failoverErr := s.nonStreamingTerminalFailureFailover(c, resp, account, true, terminalType, terminalPayload, msg, mappedModel); failoverErr != nil {
 			return nil, failoverErr
 		}
-		// 降智透明头（downstream_header_enabled，默认关）：协议错误响应也透出
-		// 已观测判定（此时 observer 已含头级+调用方喂入的事件级信号）。
-		s.applyCodexDegradationDownstreamHeaders(c)
 		return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 	}
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
@@ -2465,9 +2447,6 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		body = []byte(bodyText)
 	}
 
-	// 降智透明头（downstream_header_enabled，默认关）：本分支自上游 SSE 帧转换而来，
-	// 事件级信号已在调用方观测，写出前一并提交。
-	s.applyCodexDegradationDownstreamHeaders(c)
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, usage, terminalType, false)
 

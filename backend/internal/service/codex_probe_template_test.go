@@ -18,15 +18,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestBuildCodexProbeRequestRejectsNilPinnedTemplate(t *testing.T) {
-	ctx := context.WithValue(context.Background(), codexProbeTemplateContextKey{}, (*CodexProbeTemplate)(nil))
-	svc := &OpenAIGatewayService{}
-	body, headers, err := svc.buildCodexProbeRequest(ctx, ticketTestAccount(41), "gpt-6-astra", ModelTraceChallenge{})
-	require.ErrorIs(t, err, ErrCodexProbeTemplateInvalid)
-	require.Nil(t, body)
-	require.Nil(t, headers)
-}
-
 func TestCodexProbeDefaultStructureAndPrivacy(t *testing.T) {
 	raw := DefaultCodexProbeTemplate()
 	template, err := ParseCodexProbeTemplate(raw)
@@ -234,10 +225,9 @@ func TestCodexTicketAllowWithoutTicketPrecedenceAndInjection(t *testing.T) {
 			err := svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", http.Header{})
 			require.Equal(t, !test.allow, errors.Is(err, ErrOpenAICodexTicketUnavailable))
 			account.Extra[openAICodexTicketExtraKey("gpt-6-astra")] = verifiedTicket(account, "gpt-6-astra", "test-ticket", "session=test")
-			stored, _ := account.Extra[openAICodexTicketExtraKey("gpt-6-astra")].(*openAICodexTicket)
 			headers := http.Header{}
 			require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
-			require.Equal(t, stored.State, headers.Get(openAICodexTurnStateHeader))
+			require.Equal(t, "test-ticket", headers.Get(openAICodexTurnStateHeader))
 			require.Equal(t, "session=test", headers.Get("Cookie"))
 			require.Equal(t, test.global, repo.values[SettingKeyOpenAICodexTicketAllowWithoutTicket])
 		})

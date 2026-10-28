@@ -217,7 +217,10 @@ const allColumns = computed<Column[]>(() => [
 // 传入 visibleColumnKeys 时按其过滤(列设置);未传则全量(Ops 弹窗等使用方)
 const columns = computed<Column[]>(() => {
   const visibleColumns = props.visibleColumnKeys
-    ? allColumns.value.filter((c) => props.visibleColumnKeys!.includes(c.key))
+    ? [...new Set(props.visibleColumnKeys)].flatMap(key => {
+        const column = allColumns.value.find(column => column.key === key)
+        return column ? [column] : []
+      })
     : allColumns.value
   if (!props.summaryFirst) return visibleColumns
 

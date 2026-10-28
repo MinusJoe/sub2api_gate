@@ -388,6 +388,7 @@ const (
 	SettingKeyTableDefaultPageSize        = "table_default_page_size"       // 表格默认每页条数
 	SettingKeyTablePageSizeOptions        = "table_page_size_options"       // 表格可选每页条数（JSON 数组）
 	SettingKeyCustomMenuItems             = "custom_menu_items"             // 自定义菜单项（JSON 数组）
+	SettingKeySidebarMenuVisibility       = "sidebar_menu_visibility"       // 内置侧栏菜单显示开关（默认全部关闭）
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
 
 	// 默认配置
@@ -577,10 +578,6 @@ const (
 
 	// SettingKeyOverloadCooldownSettings stores JSON config for 529 overload cooldown handling.
 	SettingKeyOverloadCooldownSettings = "overload_cooldown_settings"
-
-	// SettingKeyOpenAIFastBridgeSettings stores the web-controlled opt-in HTTP->WS fast bridge switch.
-	SettingKeyOpenAIFastBridgeSettings = "openai_fast_bridge_settings"
-	SettingKeyOpenAIWSModeRouter       = "openai_ws_mode_router_v2"
 
 	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
 	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"

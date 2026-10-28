@@ -34,17 +34,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	attempt int,
 	lastFailureReason string,
 	agentTaskRecoveryTried *bool,
-	firstOutputTimeout time.Duration,
-	reasoningEffort string,
-	sink *openAIWSDownstreamSink,
 ) (*OpenAIForwardResult, error) {
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
-	degradation := s.beginCodexDegradationObservation(c, account, mappedModel, "ws")
-	defer s.finalizeCodexDegradationTurn(degradation)
-	latency := openAIWSLatencyFromContext(ctx)
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -208,23 +202,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
 	defer acquireCancel()
 
-	if latency != nil {
-		latency.diagnostic.observeProposedHeaders(wsHeaders)
-		latency.forceNewConn = forceNewConn
-		latency.acquireStart = time.Now()
-	}
 	lease, err := s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
-		Account: account,
-		WSURL:   wsURL,
-		Headers: wsHeaders,
-		ObserveHandshake: func(sent http.Header, status int, returned http.Header) {
-			if observe := s.codexTicketHandshakeObserver(ctx, ticket); observe != nil {
-				observe(sent, status, returned)
-			}
-			if degradation != nil {
-				degradation.observeHeaders(returned)
-			}
-		},
+		Account:          account,
+		WSURL:            wsURL,
+		Headers:          wsHeaders,
+		ObserveHandshake: s.codexTicketHandshakeObserver(ctx, ticket),
 		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
 			return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
 		},
@@ -237,15 +219,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			return ""
 		}(),
 	})
-	if latency != nil {
-		latency.acquireEnd = time.Now()
-		if err == nil {
-			latency.acquired = true
-			latency.connReused = lease.Reused()
-			latency.connPick = lease.ConnPickDuration()
-			latency.queueWait = lease.QueueWaitDuration()
-		}
-	}
 	if err != nil {
 		var agentDialErr *openAIWSDialError
 		if s.isAgentIdentityAccount(ctx, account) && errors.As(err, &agentDialErr) && isAgentIdentityTaskInvalidWSDialError(agentDialErr) && agentTaskRecoveryTried != nil && !*agentTaskRecoveryTried {
@@ -294,14 +267,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 		lease.Release()
 	}()
-	if latency != nil {
-		latency.diagnostic.observeHandshakeHeaders(lease.HandshakeHeaders())
-	}
-	if sink != nil {
-		// 非 /v1/responses 下游（目前是 Anthropic Messages 兼容桥）需要握手头里的
-		// x-request-id / x-codex-turn-state 才能复用现有转换与续链逻辑。
-		sink.SetHandshakeHeaders(lease.HandshakeHeaders())
-	}
 	connID := strings.TrimSpace(lease.ConnID())
 	logOpenAIWSModeDebug(
 		"connected account_id=%d account_type=%s transport=%s conn_id=%s conn_reused=%v conn_idle_ms=%d conn_age_ms=%d upstream_pings=%d conn_pick_ms=%d queue_wait_ms=%d has_previous_response_id=%v",
@@ -360,11 +325,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			stateStore.BindSessionTurnState(groupID, sessionHash, handshakeTurnState, s.openAIWSSessionStickyTTL())
 		}
 		if c != nil {
-			if sink != nil {
-				sink.SetHeader(http.CanonicalHeaderKey(openAIWSTurnStateHeader), handshakeTurnState)
-			} else {
-				c.Header(http.CanonicalHeaderKey(openAIWSTurnStateHeader), handshakeTurnState)
-			}
+			c.Header(http.CanonicalHeaderKey(openAIWSTurnStateHeader), handshakeTurnState)
 		}
 	}
 
@@ -382,16 +343,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, err
 	}
 
-	if latency != nil {
-		latency.diagnostic.observeWriteAttempt(payload)
-		latency.writeStart = time.Now()
-	}
-	writeErr := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout())
-	if latency != nil {
-		latency.writeEnd = time.Now()
-		latency.diagnostic.observeWriteCompleted(writeErr)
-	}
-	if err := writeErr; err != nil {
+	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
@@ -436,21 +388,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	clientDisconnected := false
 	clientDisconnectDrainStartedAt := time.Time{}
 	readTimeout := s.openAIWSReadTimeout()
-	// firstOutputTimeout > 0 时（仅 HTTP 入站的 fast 桥接请求），首个语义输出
-	// 必须在 startTime+timeout 前到达，与 HTTP 路径的首字超时同一基准。
-	firstOutputDeadline := time.Time{}
-	if firstOutputTimeout > 0 {
-		firstOutputDeadline = startTime.Add(firstOutputTimeout)
-	}
-	newFirstOutputTimeoutError := func() error {
-		lease.MarkBroken()
-		wsProxyID, wsProxyName := opsUpstreamWSProxyAttribution(account)
-		return s.newOpenAIFirstOutputTimeoutError(
-			ctx, c, account, wsProxyID, wsProxyName,
-			startTime, originalModel, reasoningEffort,
-			firstOutputTimeout, "websocket_first_semantic_output", lease.HandshakeHeaders(),
-		)
-	}
 	upstreamReadCtx := ctx
 	upstreamReadDetached := false
 	clientRequestCanceled := func() bool {
@@ -481,7 +418,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 	resultWithUsage := func() *OpenAIForwardResult {
-		observeUsageTransport(ctx, "ws", "ctx_pool")
 		return &OpenAIForwardResult{
 			RequestID:                     responseID,
 			ResponseID:                    responseID,
@@ -505,27 +441,19 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	var flusher http.Flusher
 	if reqStream {
-		if sink != nil {
-			// 下游由 sink 接管（管道 / 内存收集），SSE 响应头由下游转换器自行写出。
-			flusher = sink
-		} else {
-			if s.responseHeaderFilter != nil {
-				responseheaders.WriteFilteredHeaders(c.Writer.Header(), http.Header{}, s.responseHeaderFilter)
-			}
-			c.Header("Content-Type", "text/event-stream")
-			c.Header("Cache-Control", "no-cache")
-			c.Header("Connection", "keep-alive")
-			c.Header("X-Accel-Buffering", "no")
-			// 降智透明头（downstream_header_enabled，默认关）：首帧写出前提交；WS 事件级
-			// 信号在头提交后到达，此处携带握手/回退响应头级判定（Item 3 已知限制同款）。
-			s.applyCodexDegradationDownstreamHeaders(c)
-			f, ok := c.Writer.(http.Flusher)
-			if !ok {
-				lease.MarkBroken()
-				return nil, wrapOpenAIWSFallback("streaming_not_supported", errors.New("streaming not supported"))
-			}
-			flusher = f
+		if s.responseHeaderFilter != nil {
+			responseheaders.WriteFilteredHeaders(c.Writer.Header(), http.Header{}, s.responseHeaderFilter)
 		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		f, ok := c.Writer.(http.Flusher)
+		if !ok {
+			lease.MarkBroken()
+			return nil, wrapOpenAIWSFallback("streaming_not_supported", errors.New("streaming not supported"))
+		}
+		flusher = f
 	}
 
 	flushBatchSize := s.openAIWSEventFlushBatchSize()
@@ -553,12 +481,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		frame = append(frame, "data: "...)
 		frame = append(frame, message...)
 		frame = append(frame, '\n', '\n')
-		var wErr error
-		if sink != nil {
-			wErr = sink.WriteFrame(frame)
-		} else {
-			_, wErr = c.Writer.Write(frame)
-		}
+		_, wErr := c.Writer.Write(frame)
 		if wErr == nil {
 			wroteDownstream = true
 			pendingFlushEvents++
@@ -595,36 +518,18 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	// Keep per-read timeouts unchanged for connected clients. Once a client
 	// disconnects, use the same timeout as a bounded total drain budget.
 	var pendingJSONDocuments [][]byte
-	var pendingJSONReceivedAt time.Time
 
 readLoop:
 	for {
-		if errors.Is(context.Cause(ctx), errOpenAIWSBridgeConverterStopped) {
-			lease.MarkBroken()
-			return resultWithUsage(), errOpenAIWSBridgeConverterStopped
-		}
 		markClientRequestCanceled()
 		var message []byte
 		var readErr error
-		var receivedAt time.Time
 		readUsedDetachedContext := upstreamReadDetached
-		readBoundByFirstOutput := false
 		if len(pendingJSONDocuments) > 0 {
 			message = pendingJSONDocuments[0]
 			pendingJSONDocuments = pendingJSONDocuments[1:]
-			receivedAt = pendingJSONReceivedAt
 		} else {
 			currentReadTimeout := readTimeout
-			if !firstOutputDeadline.IsZero() && firstTokenMs == nil && !wroteDownstream && !clientDisconnected {
-				remaining := time.Until(firstOutputDeadline)
-				if remaining <= 0 {
-					return nil, newFirstOutputTimeoutError()
-				}
-				if currentReadTimeout <= 0 || remaining < currentReadTimeout {
-					currentReadTimeout = remaining
-					readBoundByFirstOutput = true
-				}
-			}
 			if clientDisconnected && !clientDisconnectDrainStartedAt.IsZero() {
 				remaining := readTimeout - time.Since(clientDisconnectDrainStartedAt)
 				if remaining <= 0 {
@@ -636,10 +541,6 @@ readLoop:
 				}
 			}
 			message, readErr = lease.ReadMessageWithContextTimeout(upstreamReadCtx, currentReadTimeout)
-			if latency != nil && latency.firstText.IsZero() && readErr == nil {
-				receivedAt = time.Now()
-				pendingJSONReceivedAt = receivedAt
-			}
 			if readErr == nil {
 				if documents, repaired := splitOpenAIConcatenatedJSONDocuments(message); repaired {
 					logOpenAIWSModeInfo(
@@ -653,10 +554,6 @@ readLoop:
 					pendingJSONDocuments = append(pendingJSONDocuments, documents[1:]...)
 				}
 			}
-		}
-		if errors.Is(context.Cause(ctx), errOpenAIWSBridgeConverterStopped) {
-			lease.MarkBroken()
-			return resultWithUsage(), errOpenAIWSBridgeConverterStopped
 		}
 		markClientRequestCanceled()
 		if readErr == nil && !json.Valid(message) {
@@ -697,9 +594,6 @@ readLoop:
 				truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
-			if readBoundByFirstOutput && !wroteDownstream && !time.Now().Before(firstOutputDeadline) && !clientRequestCanceled() {
-				return nil, newFirstOutputTimeoutError()
-			}
 			if clientDisconnected {
 				if !readUsedDetachedContext && errors.Is(readErr, context.Canceled) && clientRequestCanceled() {
 					continue
@@ -721,9 +615,6 @@ readLoop:
 			continue
 		}
 		responseModelObserver.ObserveOpenAI(message, eventType)
-		if degradation != nil {
-			degradation.observeEvent(eventType, message)
-		}
 		eventCount++
 		if firstEventType == "" {
 			firstEventType = eventType
@@ -745,11 +636,7 @@ readLoop:
 		if firstTokenMs == nil && isTokenEvent {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
-			if latency != nil {
-				latency.firstSemanticMs = firstTokenMs
-			}
 		}
-		latency.observeEvent(receivedAt, eventType, message)
 		if debugEnabled && shouldLogOpenAIWSEvent(eventCount, eventType) {
 			logOpenAIWSModeDebug(
 				"event_received account_id=%d conn_id=%s idx=%d type=%s bytes=%d token=%v terminal=%v buffered_pending=%d",

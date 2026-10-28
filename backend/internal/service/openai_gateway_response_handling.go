@@ -89,20 +89,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		v := resp.Header.Get("x-request-id")
 		c.Header("x-request-id", v)
 	}
-	// 降智透明头（downstream_header_enabled，默认关）：非暂存路径在流开始前随
-	// x-request-id 一起提交；此刻 observer 已含响应头级判定。
-	if !stageFirstOutput {
-		s.applyCodexDegradationDownstreamHeaders(c)
-	}
 	applyAttemptResponseHeaders := func() {
-		if !stageFirstOutput {
-			return
-		}
-		// 降智透明头（downstream_header_enabled，默认关）：与暂存头同在首输出提交点
-		// 写给下游；此刻 observer 已含响应头级判定，事件级信号仍继续采集。
-		// 不依赖暂存头非空——暂存集为空时这里仍是唯一的提交点。
-		s.applyCodexDegradationDownstreamHeaders(c)
-		if len(attemptResponseHeaders) == 0 || c.Writer.Written() {
+		if !stageFirstOutput || len(attemptResponseHeaders) == 0 || c.Writer.Written() {
 			return
 		}
 		for key, values := range attemptResponseHeaders {
@@ -515,7 +503,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				suppressCurrentEvent = true
 			}
 			observer.ObserveOpenAI(dataBytes, eventType)
-			observeCodexDegradationEvent(c, eventType, dataBytes)
 			// 初始上游 data 的 type 只解析一次：原始值保持终止事件的精确匹配，规范化值供后续分支复用。
 			if openAIStreamEventIsTerminalWithType(data, eventType) {
 				sawTerminalEvent = true
@@ -642,30 +629,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if imageOutput, ok := extractImageGenerationOutputFromSSEData(dataBytes, streamSeenImages); ok {
 				streamImageOutputs = append(streamImageOutputs, imageOutput)
 			}
-			// 只有 output_item.done 会被记录；按已知 eventType 门控，跳过对每个
-			// delta 行的全量 JSON 校验（Observe 内部仍会自查 type，语义不变）。
-			if eventType == "response.output_item.done" {
-				streamDoneItems.Observe(dataBytes)
-			}
-			switch eventType {
-			case "response.output_text.delta", "response.reasoning_summary_text.delta":
-				// 热路径：这两类 delta 的累加只需要 delta 字段，单键提取替代整事件
-				// 反序列化；与 ProcessEvent 对应分支语义一致（空串/非字符串不写入）。
-				if delta := gjson.GetBytes(dataBytes, "delta"); delta.Type == gjson.String {
-					if deltaStr := delta.String(); deltaStr != "" {
-						if eventType == "response.output_text.delta" {
-							streamOutputAccumulator.ProcessTextDelta(deltaStr)
-						} else {
-							streamOutputAccumulator.ProcessReasoningDelta(deltaStr)
-						}
-					}
-				}
-			default:
-				if responsesStreamEventMayContributeToOutput(eventType) {
-					var streamEvent apicompat.ResponsesStreamEvent
-					if err := json.Unmarshal(dataBytes, &streamEvent); err == nil {
-						streamOutputAccumulator.ProcessEvent(&streamEvent)
-					}
+			streamDoneItems.Observe(dataBytes)
+			if responsesStreamEventMayContributeToOutput(eventType) {
+				var streamEvent apicompat.ResponsesStreamEvent
+				if err := json.Unmarshal(dataBytes, &streamEvent); err == nil {
+					streamOutputAccumulator.ProcessEvent(&streamEvent)
 				}
 			}
 			if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(dataBytes, streamOutputAccumulator, streamDoneItems, streamImageOutputs); normalized {
@@ -1611,6 +1579,7 @@ func openAICacheReadTokensFromUsage(value gjson.Result) int {
 		value.Get("cache_read_input_tokens"),
 		value.Get("cache_read_tokens"),
 		value.Get("cached_tokens"),
+		value.Get("prompt_cache_hit_tokens"), // DeepSeek：prompt_tokens = hit + miss
 	)
 }
 
@@ -1706,9 +1675,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	}
 	body = restoreCodexToolNamesFromContext(c, body)
 	body = ensureOpenAIResponseObjectCreatedAt(body)
-	// 降智透明头（downstream_header_enabled，默认关）：非流式在响应体写出前提交，
-	// 此刻 observer 已含响应头级判定。
-	s.applyCodexDegradationDownstreamHeaders(c)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。

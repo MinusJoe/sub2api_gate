@@ -11,7 +11,6 @@ export default {
         gateway: 'Gateway',
         email: 'Email',
         backup: 'Backup',
-        debugLogs: 'Debug / Logs',
         payment: 'Payment',
       },
       features: {
@@ -70,6 +69,10 @@ export default {
           requireAuthHint: 'When on, anonymous visitors are redirected to the login page; when off, the page is public and anonymous visitors only see non-exclusive groups.',
           priceDescription: 'Pricing notes (Markdown)',
           priceDescriptionHint: 'Rendered at the top of the plaza page. Use it for billing rules, exchange rates, promotions, etc.',
+        },
+        sidebarMenus: {
+          title: 'Sidebar Menus',
+          description: 'Choose which entries appear in the left sidebar. All menus below are off by default; save to apply changes.',
         },
         pluginManagement: {
           title: 'Plugin Management',
@@ -1083,34 +1086,6 @@ export default {
         cooldownMinutesHint: 'Duration to pause account scheduling (1-120 minutes)',
         saved: 'Overload cooldown settings saved',
         saveFailed: 'Failed to save overload cooldown settings'
-      },
-      openaiWSModeRouter: {
-        title: 'WS mode routing',
-        description: 'Manage account WS modes on the web without changing container environment variables.',
-        enabled: 'Enable WS mode routing v2',
-        hint: 'Use the context pool, dedicated relay or HTTP bridge selected on each account. Turning this off restores legacy routing; it does not disable all WS.',
-        note: 'Applies to new requests and connections on this node after saving; other nodes sync within about 5 seconds. Existing connections retain their mode. Global WS disable, forced HTTP and account restrictions still take precedence.',
-        sourceWeb: 'Current source: web setting (overrides deployment configuration)',
-        sourceConfig: 'Current source: deployment configuration (file or environment)',
-        inherit: 'Restore deployment configuration',
-        retry: 'Reload',
-        saved: 'WS mode routing settings saved',
-        loadFailed: 'Unable to load WS mode routing settings. Please retry.',
-        saveFailed: 'Failed to save WS mode routing settings',
-      },
-      openaiFastBridge: {
-        title: 'HTTP→WS Bridge',
-        description: 'Control whether eligible HTTP/SSE Responses / Messages requests use the upstream Responses WebSocket',
-        enabled: 'Enable HTTP→WS Bridge',
-        enabledHint: 'The enable switch defaults off; scope defaults to all. Only ChatGPT OAuth/Codex accounts are eligible. Normal requests respect account WS opt-out; group-forced Fast keeps its existing override, while explicit force_http always wins. Disabling this switch preserves the selected scope.',
-        scope: 'Bridge scope',
-        scopeAll: 'All eligible requests (default)',
-        scopeFastOnly: 'Fast / Ultra Fast requests only',
-        scopeHint: 'The global scope covers eligible Responses / Messages requests on OAuth/Codex accounts, including standard requests; Fast-only scope is limited to priority/ultrafast. Neither scope covers Chat Completions, API Key, passthrough, or compact requests.',
-        note: 'This setting only selects the transport: it does not upgrade standard requests to Fast or change existing billing rules. Independent group Fast policies can still apply. Fast can also work over HTTP; choosing WS does not guarantee Fast takes effect.',
-        saved: 'HTTP→WS bridge settings saved',
-        saveFailed: 'Failed to save HTTP→WS bridge settings',
-        loadFailed: 'Failed to load HTTP→WS bridge settings'
       },
       rateLimit429Cooldown: {
         title: '429 Default Cooldown',

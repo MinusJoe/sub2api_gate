@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${RELEASE_VERSION:?}" "${RELEASE_SHA:?}" "${GITHUB_REPOSITORY:?}" "${RUNNER_TEMP:?}"
-registries=("ghcr.io/${GITHUB_REPOSITORY,,}")
+owner=${GITHUB_REPOSITORY%%/*}
+registries=("ghcr.io/${owner,,}/sub2api")
 if [[ ${SIMPLE_RELEASE:-false} != true && ${DOCKERHUB_USERNAME:-skip} != skip ]]; then
-  registries+=("${DOCKERHUB_USERNAME,,}/sub4api")
+  registries+=("${DOCKERHUB_USERNAME}/sub2api")
 fi
 arches=(amd64 arm64)
 if [[ ${SIMPLE_RELEASE:-false} == true ]]; then arches=(amd64); fi

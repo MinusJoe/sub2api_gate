@@ -198,6 +198,7 @@ import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
+import { isSidebarMenuVisible } from '@/utils/sidebarMenus'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
 interface NavItem {
@@ -221,11 +222,12 @@ interface NavItem {
   featureFlag?: () => boolean | undefined
 }
 
-// applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
+// 递归应用侧栏显示设置和功能开关（含子节点）。
 // 使用 `!== false` 宽容语义：undefined（设置未加载）或 true 都视为显示。
 function applyFeatureFlags(items: NavItem[]): NavItem[] {
   const out: NavItem[] = []
   for (const item of items) {
+    if (!isSidebarMenuVisible(appStore.cachedPublicSettings, item.path)) continue
     if (item.featureFlag && item.featureFlag() === false) continue
     if (item.children) {
       out.push({ ...item, children: applyFeatureFlags(item.children) })
@@ -835,8 +837,8 @@ const adminNavItems = computed((): NavItem[] => {
         { path: '/admin/orders/plans', label: t('nav.paymentPlans'), icon: CreditCardIcon },
       ],
     },
-    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
-    { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
+    { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true },
+    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon }
   ]
 
   const visible = applyFeatureFlags(baseItems)

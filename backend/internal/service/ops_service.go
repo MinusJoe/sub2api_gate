@@ -186,11 +186,7 @@ func (s *OpsService) initRuntimeSettings(ctx context.Context) {
 // explicit administrative refreshes. Request processing only reads the atomic
 // snapshot.
 func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
-	if s == nil {
-		return nil
-	}
-	if s.settingRepo == nil {
-		s.publishRequestDiagnosticRetentionPolicy(defaultOpsRuntimeLogConfig(s.cfg))
+	if s == nil || s.settingRepo == nil {
 		return nil
 	}
 	if ctx == nil {
@@ -222,16 +218,16 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
 	if s.systemLogSink != nil {
-		runtimeCfg := defaultOpsRuntimeLogConfig(s.cfg)
-		policyValid := true
+		persistAccessLogs := false
 		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {
-			runtimeCfg, policyValid = decodeOpsRuntimeLogConfig(raw, runtimeCfg)
+			var runtimeCfg struct {
+				PersistAccessLogs bool `json:"persist_access_logs"`
+			}
+			if json.Unmarshal([]byte(raw), &runtimeCfg) == nil {
+				persistAccessLogs = runtimeCfg.PersistAccessLogs
+			}
 		}
-		s.systemLogSink.SetPersistAccessLogs(runtimeCfg.PersistAccessLogs)
-		s.systemLogSink.SetPersistRequestDiagnostics(runtimeCfg.PersistRequestDiagnostics)
-		if policyValid {
-			s.publishRequestDiagnosticRetentionPolicy(runtimeCfg)
-		}
+		s.systemLogSink.SetPersistAccessLogs(persistAccessLogs)
 	}
 	return nil
 }

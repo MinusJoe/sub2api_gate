@@ -84,26 +84,15 @@ export const formatUsageOutputRate = (row: Pick<UsageLog,
   return `${(outputTokens * 1000 / durationMs).toFixed(1)} tok/s`
 }
 
-export const formatUsageSessionOutputRate = (row: Pick<UsageLog,
-  'session_id' | 'session_average_output_tps' | 'session_tps_request_count'
+// Stored input_tokens excludes cache reads and writes; include both in total input.
+export const formatUsageCacheReadRatio = (row: Pick<UsageLog,
+  'input_tokens' | 'cache_read_tokens' | 'cache_creation_tokens'
 >): string => {
-  const rate = row.session_average_output_tps
-  if (!row.session_id?.trim() || (row.session_tps_request_count ?? 0) <= 0
-    || rate == null || !Number.isFinite(rate) || rate <= 0) {
+  const cacheRead = row.cache_read_tokens ?? 0
+  const counts = [row.input_tokens ?? 0, cacheRead, row.cache_creation_tokens ?? 0]
+  const totalInput = counts.reduce((total, count) => total + count, 0)
+  if (counts.some(count => !Number.isFinite(count) || count < 0) || !Number.isFinite(totalInput) || totalInput <= 0) {
     return '—'
   }
-  return `${rate.toFixed(1)} tok/s`
-}
-
-export const formatUsageCacheRate = (row: Pick<UsageLog,
-  'input_tokens' | 'cache_creation_tokens' | 'cache_read_tokens' | 'image_count' | 'image_output_tokens' | 'billing_mode'
->): string => {
-  const tokens = [row.input_tokens, row.cache_creation_tokens, row.cache_read_tokens]
-  if (row.image_count > 0 || row.image_output_tokens > 0 || row.billing_mode === 'image'
-    || tokens.some(value => !Number.isFinite(value) || value < 0)) {
-    return '—'
-  }
-  // Stored input_tokens excludes both cache creation and cache reads.
-  const totalInput = row.input_tokens + row.cache_creation_tokens + row.cache_read_tokens
-  return totalInput > 0 ? `${(row.cache_read_tokens * 100 / totalInput).toFixed(1)}%` : '—'
+  return `${(cacheRead * 100 / totalInput).toFixed(1)}%`
 }

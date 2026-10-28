@@ -20,20 +20,13 @@ Sub4API 基于 sub2api 二次开发，完全兼容 sub2api，并会持续同步�
 
 在原有 API 网关与账号管理能力的基础上，Sub4API 重点增强 **Codex 打票与票据管理、请求时区替换以及请求头语言统一**，并提供票据流水和降智检测，方便管理与排查账号状态。
 
-已部署 sub2api 的用户，只需将应用镜像替换为 `ghcr.io/talent668/sub4api:latest` 并重新创建应用容器，即可沿用原有配置与数据切换到 Sub4API。
+已部署 sub2api 的用户，只需将应用镜像替换为 `macosdo/sub4api:latest` 并重新创建应用容器，即可沿用原有配置与数据切换到 Sub4API。
 
 ## 开发分支
 
-后续功能开发与修复基于 `dev` 分支。当前开发基线合并了本仓库的
-`release/1.1.14`（`a65ae5381`）和 `Wei-Shaw/sub2api` v0.2.18
-（`5c185c5c5`），上游同步记录见 [upstream-sync.json](.github/upstream-sync.json)。
+`dev` 基于 `MACOS-DO/sub4api` v1.1.11（`fd6790fd0`）和 `Wei-Shaw/sub2api` v0.2.18（`ac1b8f127`）重新三方合并。额外保留当前侧栏菜单精简，在使用记录的延迟列显示缓存读取占比，并接入分组级 OpenAI 档位策略及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)。
 
-开发环境使用 Go 1.27.3 和 pnpm 9.15.9。升级后，综合分组的图片生成能力需由管理员显式开启；
-已有 Gemini / Antigravity 分组通过迁移保留图片生成权限，Grok 4.7 Fast 按上游修正后的价格计费。
-
-测试镜像使用 `ghcr.io/talent668/sub4api:dev`，支持 `linux/amd64` 和 `linux/arm64`。
-每次推送到 `dev` 会由 [Dev image](.github/workflows/dev-image.yml) 工作流构建并更新此标签，
-应用版本包含 `dev` 和提交号。部署时将 `SUB4API_IMAGE` 设为该镜像并重新拉取、创建应用容器。
+开发镜像为 `ghcr.io/talent668/sub2api_gate:dev`，由现有 Dev image 工作流构建并检查两种架构启动后更新。
 
 ## 相比 sub2api 的主要改进
 
@@ -99,7 +92,7 @@ Accept-Language: en-US,en;q=0.9
 
 ## 部署与切换
 
-Docker 镜像统一使用 `ghcr.io/talent668/sub4api:latest`。为沿用现有部署配置，Compose 服务名和 Linux 安装脚本的 systemd 服务名仍为 `sub2api`。
+Docker 镜像统一使用 `macosdo/sub4api:latest`。为沿用现有部署配置，Compose 服务名和 Linux 安装脚本的 systemd 服务名仍为 `sub2api`。
 
 ### 从 sub2api 一键切换到 Sub4API
 
@@ -112,7 +105,7 @@ Docker 镜像统一使用 `ghcr.io/talent668/sub4api:latest`。为沿用现有�
 ```yaml
 services:
   sub2api:
-    image: ghcr.io/talent668/sub4api:latest
+    image: macosdo/sub4api:latest
 ```
 
 上面仅展示需要修改的片段，其余配置继续沿用。保留原服务名、端口、数据目录与数据卷，以及原 `.env` 中的数据库、Redis 连接、`JWT_SECRET` 和 `TOTP_ENCRYPTION_KEY`，无需重新初始化或导入账号。
@@ -153,7 +146,7 @@ mkdir -p sub4api-deploy
 cd sub4api-deploy
 
 # 下载 Compose 配置并生成首次部署所需的密钥和数据目录
-curl -fsSL https://raw.githubusercontent.com/talent668/sub4api/main/deploy/docker-deploy.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MACOS-DO/sub4api/main/deploy/docker-deploy.sh | bash
 chmod 600 .env
 ```
 
@@ -162,7 +155,7 @@ chmod 600 .env
 打开生成的 `docker-compose.yml`，将 `sub2api` 服务的镜像改为：
 
 ```yaml
-image: ghcr.io/talent668/sub4api:latest
+image: macosdo/sub4api:latest
 ```
 
 随后检查 `.env`，按需设置 `ADMIN_EMAIL`、`ADMIN_PASSWORD` 和 `SERVER_PORT`。这里仅修改应用镜像，其余服务及数据挂载保持生成的配置。
@@ -197,7 +190,7 @@ docker compose logs -f sub2api
 适用于 amd64 或 arm64 Linux 服务器。需要 Bash 4 或更新版本、root 或 sudo 权限，以及可连接的 PostgreSQL 和 Redis。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/talent668/sub4api/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/MACOS-DO/sub4api/main/deploy/install.sh | sudo bash
 
 # 启动服务并设置开机启动
 sudo systemctl enable --now sub2api
@@ -223,7 +216,7 @@ sudo systemctl restart sub2api
 需要 Go 1.27.0、Node.js 24、pnpm 9，以及可连接的 PostgreSQL 和 Redis。Go 版本与当前 `backend/go.mod` 一致，Node.js 与 pnpm 版本与仓库 Docker 构建保持一致。
 
 ```bash
-git clone https://github.com/talent668/sub4api.git
+git clone https://github.com/MACOS-DO/sub4api.git
 cd sub4api
 
 # 安装 pnpm 并构建前端
@@ -250,7 +243,7 @@ go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub4api ./cmd/serv
 适用于搭载 Apple 芯片、运行 macOS 26 或更新版本的 Mac，需要 Apple `container` 1.1.0 或更新版本及 `openssl`。
 
 ```bash
-git clone https://github.com/talent668/sub4api.git
+git clone https://github.com/MACOS-DO/sub4api.git
 cd sub4api/deploy
 
 # 生成首次部署配置
@@ -260,7 +253,7 @@ cd sub4api/deploy
 编辑生成的 `.env`，设置应用镜像：
 
 ```dotenv
-APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/talent668/sub4api:latest
+APPLE_CONTAINER_SUB2API_IMAGE=macosdo/sub4api:latest
 ```
 
 随后启动并检查服务：

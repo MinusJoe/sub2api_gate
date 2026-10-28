@@ -57,8 +57,6 @@ func (s *OpenAIGatewayService) relayOpenAICodexTurnState(c *gin.Context, account
 	}
 	c.Writer.Header().Set(canonical, state)
 	s.noteOpenAICodexTurnStateProvenance(c, account)
-	// 零探针替代：直接从业务响应头回收上游真票，避免独立打票探针流量。
-	s.captureOpenAICodexTicketFromBusinessResponse(c, account, upstream)
 }
 
 // stageOpenAICodexTurnState 将上游 turn-state 暂存到延迟提交的响应头集合
@@ -92,7 +90,6 @@ func (s *OpenAIGatewayService) noteStagedOpenAICodexTurnStateCommitted(c *gin.Co
 		return
 	}
 	s.noteOpenAICodexTurnStateProvenance(c, account)
-	s.captureOpenAICodexTicketFromBusinessResponse(c, account, staged)
 }
 
 func extractOpenAICodexTurnState(upstream http.Header) string {

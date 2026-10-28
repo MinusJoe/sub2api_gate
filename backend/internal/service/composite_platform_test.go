@@ -132,26 +132,6 @@ func TestResolveCompositeModelOwnershipFlagsOpenAIGatewayOAuthClaimants(t *testi
 	require.Equal(t, CompositeModelOwnership{Ambiguous: true}, anthropicFamily)
 }
 
-func TestResolveCompositeModelOwnershipExcludesBPSWithoutDroppingOAuthProtection(t *testing.T) {
-	svc := &GatewayService{accountRepo: &compositeOwnershipAccountRepo{accounts: []Account{
-		{ID: 1, Platform: PlatformOpenAIBPS, Type: AccountTypeOAuth, Credentials: map[string]any{
-			"model_mapping": map[string]any{"shared": "gpt-6-astra", "bps-only": "gpt-6-astra"},
-		}},
-		{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{
-			"model_mapping": map[string]any{"shared": "gpt-6-astra"},
-		}},
-	}}}
-	ownership, err := svc.resolveCompositeModelOwnership(context.Background(), 7, "shared")
-	require.NoError(t, err)
-	require.Equal(t, CompositeModelOwnership{
-		TargetPlatform: PlatformOpenAI, Matched: true, OpenAIGatewayOAuthClaimed: true,
-	}, ownership)
-
-	ownership, err = svc.resolveCompositeModelOwnership(context.Background(), 7, "bps-only")
-	require.NoError(t, err)
-	require.Equal(t, CompositeModelOwnership{}, ownership)
-}
-
 func TestNewGatewayServiceWiresCompositeModelOwnershipResolver(t *testing.T) {
 	groupID := int64(7)
 	repo := &compositeOwnershipAccountRepo{

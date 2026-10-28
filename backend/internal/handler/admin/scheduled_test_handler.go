@@ -1,10 +1,8 @@
 package admin
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/MACOS-DO/sub4api/internal/pkg/response"
 	"github.com/MACOS-DO/sub4api/internal/service"
@@ -14,63 +12,28 @@ import (
 // ScheduledTestHandler handles admin scheduled-test-plan management.
 type ScheduledTestHandler struct {
 	scheduledTestSvc *service.ScheduledTestService
-	apiKeySvc        *service.APIKeyService
 }
 
 // NewScheduledTestHandler creates a new ScheduledTestHandler.
-func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService, apiKeySvc *service.APIKeyService) *ScheduledTestHandler {
-	return &ScheduledTestHandler{scheduledTestSvc: scheduledTestSvc, apiKeySvc: apiKeySvc}
+func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService) *ScheduledTestHandler {
+	return &ScheduledTestHandler{scheduledTestSvc: scheduledTestSvc}
 }
 
 type createScheduledTestPlanRequest struct {
-	AccountID      int64    `json:"account_id" binding:"required"`
-	TestType       string   `json:"test_type"`
-	ModelID        string   `json:"model_id"`
-	Models         []string `json:"models"`
-	APIKeyID       *int64   `json:"api_key_id"`
-	CronExpression string   `json:"cron_expression" binding:"required"`
-	Enabled        *bool    `json:"enabled"`
-	MaxResults     int      `json:"max_results"`
-	AutoRecover    *bool    `json:"auto_recover"`
+	AccountID      int64  `json:"account_id" binding:"required"`
+	ModelID        string `json:"model_id"`
+	CronExpression string `json:"cron_expression" binding:"required"`
+	Enabled        *bool  `json:"enabled"`
+	MaxResults     int    `json:"max_results"`
+	AutoRecover    *bool  `json:"auto_recover"`
 }
 
 type updateScheduledTestPlanRequest struct {
-	TestType       string   `json:"test_type"`
-	ModelID        string   `json:"model_id"`
-	Models         []string `json:"models"`
-	APIKeyID       *int64   `json:"api_key_id"`
-	CronExpression string   `json:"cron_expression"`
-	Enabled        *bool    `json:"enabled"`
-	MaxResults     int      `json:"max_results"`
-	AutoRecover    *bool    `json:"auto_recover"`
-}
-
-func validateScheduledDiagnosticModels(models []string) error {
-	if len(models) == 0 {
-		return nil
-	}
-	allowed, err := service.ModelTraceGPTModels()
-	if err != nil {
-		return err
-	}
-	modelSet := make(map[string]bool, len(allowed))
-	for _, model := range allowed {
-		modelSet[model] = true
-	}
-	for _, model := range models {
-		if !modelSet[model] {
-			return fmt.Errorf("unsupported GPT model %q", model)
-		}
-	}
-	return nil
-}
-
-func (h *ScheduledTestHandler) authorizeDiagnosticPlan(c *gin.Context, plan *service.ScheduledTestPlan) bool {
-	if plan.APIKeyID == nil || *plan.APIKeyID <= 0 {
-		response.BadRequest(c, "api_key_id is required for codex diagnostic plans")
-		return false
-	}
-	return authorizeCodexDiagnosticAPIKey(c, h.apiKeySvc, *plan.APIKeyID)
+	ModelID        string `json:"model_id"`
+	CronExpression string `json:"cron_expression"`
+	Enabled        *bool  `json:"enabled"`
+	MaxResults     int    `json:"max_results"`
+	AutoRecover    *bool  `json:"auto_recover"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -99,10 +62,7 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 
 	plan := &service.ScheduledTestPlan{
 		AccountID:      req.AccountID,
-		TestType:       strings.ToLower(strings.TrimSpace(req.TestType)),
 		ModelID:        req.ModelID,
-		Models:         req.Models,
-		APIKeyID:       req.APIKeyID,
 		CronExpression: req.CronExpression,
 		Enabled:        true,
 		MaxResults:     req.MaxResults,
@@ -112,14 +72,6 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 	}
 	if req.AutoRecover != nil {
 		plan.AutoRecover = *req.AutoRecover
-	}
-	if err := validateScheduledDiagnosticModels(req.Models); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	if plan.TestType == service.ScheduledTestTypeCodexDiagnostic && !h.authorizeDiagnosticPlan(c, plan) {
-		return
 	}
 
 	created, err := h.scheduledTestSvc.CreatePlan(c.Request.Context(), plan)
@@ -150,27 +102,8 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Work on a copy so rejected changes cannot mutate the loaded plan.
-	plan := *existing
-	existing = &plan
-	previousType := strings.ToLower(strings.TrimSpace(existing.TestType))
-	previousKeyID := existing.APIKeyID
-
-	if req.TestType != "" {
-		existing.TestType = strings.ToLower(strings.TrimSpace(req.TestType))
-	}
 	if req.ModelID != "" {
 		existing.ModelID = req.ModelID
-	}
-	if req.Models != nil {
-		if err := validateScheduledDiagnosticModels(req.Models); err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-		existing.Models = req.Models
-	}
-	if req.APIKeyID != nil {
-		existing.APIKeyID = req.APIKeyID
 	}
 	if req.CronExpression != "" {
 		existing.CronExpression = req.CronExpression
@@ -183,15 +116,6 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 	}
 	if req.AutoRecover != nil {
 		existing.AutoRecover = *req.AutoRecover
-	}
-
-	keyChanged := req.APIKeyID != nil && (previousKeyID == nil || *req.APIKeyID != *previousKeyID)
-	// Every enabled diagnostic update must authorize its billing key, including
-	// edits to older plans. Disabled plans may keep an unavailable original key.
-	if strings.ToLower(strings.TrimSpace(existing.TestType)) == service.ScheduledTestTypeCodexDiagnostic &&
-		(existing.Enabled || previousType != service.ScheduledTestTypeCodexDiagnostic || keyChanged) &&
-		!h.authorizeDiagnosticPlan(c, existing) {
-		return
 	}
 
 	updated, err := h.scheduledTestSvc.UpdatePlan(c.Request.Context(), existing)

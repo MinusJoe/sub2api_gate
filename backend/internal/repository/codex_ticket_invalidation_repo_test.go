@@ -17,7 +17,7 @@ func TestCodexTicketInvalidationTransaction(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer func() { _ = db.Close() }()
+			defer db.Close()
 			repo := &codexTicketAttemptRepository{db: db}
 			event := &service.CodexTicketInvalidation{AccountID: 7, Model: "gpt-6-astra", TicketGenerationID: "11111111-1111-4111-8111-111111111111", OccurredAt: time.Now().UTC(), ReasonCode: service.CodexTicketInvalidationCredentialsChanged, RequestKind: "user_request", RequestRoute: "/v1/responses", ReturnedTicket: "new-state"}
 			current := event.TicketGenerationID
@@ -46,12 +46,11 @@ func TestCodexTicketInvalidationTransaction(t *testing.T) {
 						deleteTicket.WillReturnResult(sqlmock.NewResult(0, 1))
 					}
 				}
-				switch scenario {
-				case "delete failure":
+				if scenario == "delete failure" {
 					mock.ExpectRollback()
-				case "commit failure":
+				} else if scenario == "commit failure" {
 					mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
-				default:
+				} else {
 					mock.ExpectCommit()
 				}
 			}

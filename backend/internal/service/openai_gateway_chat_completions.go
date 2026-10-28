@@ -61,13 +61,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	ctx = s.openAIWSModeRouterRequestContext(ctx, c)
-	if err := s.requireNativeWSClient(c, account, "chat"); err != nil {
-		return nil, err
-	}
-	ctx, trace := withUsageTransportTrace(ctx, c)
-	result, err := s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
-	return trace.finish(result), err
+	return s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
 }
 
 func (s *OpenAIGatewayService) forwardAsChatCompletions(
@@ -384,10 +378,6 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		_ = resp.Body.Close()
 	}()
 
-	// 降智信号：Chat Completions 兼容链路同样采集响应头。
-	s.observeCodexDegradationHeaders(c, account, upstreamModel, "chat_completions", resp.Header)
-	defer s.finalizeCodexDegradation(c)
-
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg, completeErrorBody := s.readOpenAIUpstreamErrorWithCompleteness(resp)
@@ -694,7 +684,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai chat_completions buffered", requestID)
+	finalResponse, usage, acc, priorModels, err := s.readOpenAICompatBufferedTerminal(resp, c, account, "openai chat_completions buffered", requestID)
 	if err != nil {
 		return nil, s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
 	}
@@ -707,6 +697,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	priorModels.apply(observer)
 	observer.Observe(finalResponse.Model, true)
 	observer.ObserveServiceTier(finalResponse.ServiceTier, true)
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
@@ -764,8 +755,6 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
 
-	// 降智透明头（downstream_header_enabled，默认关）：非流式聚合结果写出前提交。
-	s.applyCodexDegradationDownstreamHeaders(c)
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -938,7 +927,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
-		observeCodexDegradationEvent(c, event.Type, []byte(payload))
 		refusalDetector.ObservePayload([]byte(payload))
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 

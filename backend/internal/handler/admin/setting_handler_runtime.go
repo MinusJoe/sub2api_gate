@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/MACOS-DO/sub4api/internal/handler/dto"
@@ -14,6 +13,9 @@ import (
 // GetAdminAPIKey 获取管理员 API Key 状态
 // GET /api/v1/admin/settings/admin-api-key
 func (h *SettingHandler) GetAdminAPIKey(c *gin.Context) {
+	if !requireAdminKeyJWT(c) {
+		return
+	}
 	maskedKey, exists, err := h.settingService.GetAdminAPIKeyStatus(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -26,9 +28,21 @@ func (h *SettingHandler) GetAdminAPIKey(c *gin.Context) {
 	})
 }
 
-// RegenerateAdminAPIKey 生成/重新生成管理员 API Key
+// RegenerateAdminAPIKey 轮换已存在的旧版管理员 API Key
 // POST /api/v1/admin/settings/admin-api-key/regenerate
 func (h *SettingHandler) RegenerateAdminAPIKey(c *gin.Context) {
+	if !requireAdminKeyJWT(c) {
+		return
+	}
+	_, exists, err := h.settingService.GetAdminAPIKeyStatus(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if !exists {
+		response.Error(c, 403, "旧版密钥已停止新建，请创建权限管理密钥")
+		return
+	}
 	key, err := h.settingService.GenerateAdminAPIKey(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -43,6 +57,9 @@ func (h *SettingHandler) RegenerateAdminAPIKey(c *gin.Context) {
 // DeleteAdminAPIKey 删除管理员 API Key
 // DELETE /api/v1/admin/settings/admin-api-key
 func (h *SettingHandler) DeleteAdminAPIKey(c *gin.Context) {
+	if !requireAdminKeyJWT(c) {
+		return
+	}
 	if err := h.settingService.DeleteAdminAPIKey(c.Request.Context()); err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -101,50 +118,6 @@ func (h *SettingHandler) UpdateOverloadCooldownSettings(c *gin.Context) {
 		Enabled:         updatedSettings.Enabled,
 		CooldownMinutes: updatedSettings.CooldownMinutes,
 	})
-}
-
-// GetOpenAIFastBridgeSettings 获取 HTTP -> WS 桥接配置
-// GET /api/v1/admin/settings/openai-fast-bridge
-func (h *SettingHandler) GetOpenAIFastBridgeSettings(c *gin.Context) {
-	settings, err := h.settingService.GetOpenAIFastBridgeSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, dto.OpenAIFastBridgeSettings{Enabled: settings.Enabled, Scope: settings.Scope})
-}
-
-// UpdateOpenAIFastBridgeSettingsRequest permits legacy enabled-only updates.
-// RawMessage distinguishes omitted scope from explicit null (which is invalid).
-type UpdateOpenAIFastBridgeSettingsRequest struct {
-	Enabled *bool           `json:"enabled"`
-	Scope   json.RawMessage `json:"scope"`
-}
-
-// UpdateOpenAIFastBridgeSettings 更新 HTTP -> WS 桥接配置
-// PUT /api/v1/admin/settings/openai-fast-bridge
-func (h *SettingHandler) UpdateOpenAIFastBridgeSettings(c *gin.Context) {
-	var req UpdateOpenAIFastBridgeSettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	var scope *string
-	if req.Scope != nil {
-		var value string
-		if err := json.Unmarshal(req.Scope, &value); err != nil ||
-			(value != service.OpenAIFastBridgeScopeAll && value != service.OpenAIFastBridgeScopeFastOnly) {
-			response.BadRequest(c, "scope must be all or fast_only")
-			return
-		}
-		scope = &value
-	}
-	updated, err := h.settingService.PatchOpenAIFastBridgeSettings(c.Request.Context(), req.Enabled, scope)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	response.Success(c, dto.OpenAIFastBridgeSettings{Enabled: updated.Enabled, Scope: updated.Scope})
 }
 
 // GetRateLimit429CooldownSettings 获取429默认回避配置

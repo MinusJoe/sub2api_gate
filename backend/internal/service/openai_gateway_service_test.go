@@ -4119,28 +4119,3 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 	require.NotContains(t, gotMsg, "Upstream request failed")
 	require.NotNil(t, GetOpsCyberPolicy(c))
 }
-
-// TestOpenAIWhitelistsCarryClientThreadID 锁定官方客户端线程头在两条出站路径的
-// 白名单放行：codex-bridge 插件按 (账号, x-client-request-id) 铸/回带 turn-state
-// 票，该头被截断时票会退化为账号级跨线程共享（协议上不允许）。
-// 匹配形状与出站构造一致：openai_gateway_forward.go / openai_gateway_passthrough.go
-// 均按 strings.ToLower(canonical 键) 查白名单。
-func TestOpenAIWhitelistsCarryClientThreadID(t *testing.T) {
-	cases := []struct {
-		name      string
-		whitelist map[string]bool
-	}{
-		{"non-passthrough", openaiAllowedHeaders},
-		{"passthrough", openaiPassthroughAllowedHeaders},
-	}
-	const canonicalKey = "X-Client-Request-Id"
-	lowered := strings.ToLower(canonicalKey)
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.True(t, tc.whitelist[lowered],
-				"%s 必须放行 %s，否则插件线程键断层、票退化为账号级共享", tc.name, canonicalKey)
-			// 票回带键与线程键不得混用：turn-state 仍由插件统一接管。
-			require.True(t, tc.whitelist["x-codex-turn-state"])
-		})
-	}
-}

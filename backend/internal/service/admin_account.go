@@ -411,9 +411,6 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
-	if err := ValidateOpenAINativeWSPresetExtra(input.Platform, input.Type, accountExtra); err != nil {
-		return nil, err
-	}
 	if input.Platform == PlatformKimi && input.Type == AccountTypeOAuth {
 		credentials, err := normalizeKimiOAuthCredentials(input.Credentials)
 		if err != nil {
@@ -506,6 +503,10 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := ValidateOpenAIRequestTimezoneExtra(input.Platform, accountExtra); err != nil {
 		return nil, err
 	}
+	if accountExtra != nil {
+		// 检测结果只由后端写入；跟随模式下时区在创建后检测得出。
+		preserveOpenAIRequestTimezoneDetection(nil, accountExtra)
+	}
 	accountExtra, err = normalizeGrokMediaEligibilityExtra(input.Platform, accountExtra)
 	if err != nil {
 		return nil, err
@@ -572,30 +573,33 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
-	// OAuth 账号：创建后异步设置隐私。
-	// 使用 Ensure（幂等）而非 Force：新建账号 Extra 为空时效果相同，但更安全。
-	if account.Type == AccountTypeOAuth {
-		switch account.Platform {
-		case PlatformOpenAI:
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
-					}
+	AfterAccountCommit(ctx, func(_ context.Context) {
+		// OAuth 账号：创建后异步设置隐私。
+		// 使用 Ensure（幂等）而非 Force：新建账号 Extra 为空时效果相同，但更安全。
+		if account.Type == AccountTypeOAuth {
+			switch account.Platform {
+			case PlatformOpenAI:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
+						}
+					}()
+					s.EnsureOpenAIPrivacy(context.Background(), account)
 				}()
-				s.EnsureOpenAIPrivacy(context.Background(), account)
-			}()
-		case PlatformAntigravity:
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
-					}
+			case PlatformAntigravity:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
+						}
+					}()
+					s.EnsureAntigravityPrivacy(context.Background(), account)
 				}()
-				s.EnsureAntigravityPrivacy(context.Background(), account)
-			}()
+			}
 		}
-	}
+		s.scheduleOpenAIRequestTimezoneDetection(account)
+	})
 
 	return account, nil
 }
@@ -608,13 +612,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	effectiveKimiType := account.Type
 	if input.Type != "" {
 		effectiveKimiType = input.Type
-	}
-	effectiveNativeExtra := account.Extra
-	if input.Extra != nil {
-		effectiveNativeExtra = input.Extra
-	}
-	if err := ValidateOpenAINativeWSPresetExtra(account.Platform, effectiveKimiType, effectiveNativeExtra); err != nil {
-		return nil, err
 	}
 	if account.Platform == PlatformKimi && effectiveKimiType == AccountTypeOAuth && (input.Credentials != nil || input.Type != "") {
 		credentials, err := normalizeKimiOAuthCredentials(MergeCredentials(account.Credentials, input.Credentials))
@@ -682,6 +679,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
+	previousTimezoneMode := account.OpenAIRequestTimezoneMode()
+	previousProxyID := cloneAccountValuePointer(account.ProxyID)
+	_, hadTimezoneDetection := account.Extra[openAIRequestTimezoneDetectedExtraKey]
 
 	if input.Name != "" {
 		account.Name = input.Name
@@ -755,6 +755,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
+		// 目录观察和能力 metadata 只由同步写入。表单里的旧值或注入值不能进入本次更新。
+		delete(normalizedExtra, grokObservedModelsExtraKey)
+		delete(normalizedExtra, UpstreamModelMetadataExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -763,6 +766,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			"quota_weekly_used",
 			"quota_weekly_start",
 			grokBillingExtraKey,
+			grokObservedModelsExtraKey,
+			UpstreamModelMetadataExtraKey,
 			UpstreamBillingProbeEnabledExtraKey,
 			UpstreamBillingRateSyncEnabledExtraKey,
 			UpstreamBillingProbeExtraKey,
@@ -777,6 +782,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				normalizedExtra[key] = v
 			}
 		}
+		preserveOpenAIRequestTimezoneDetection(account.Extra, normalizedExtra)
 		normalizedExtra = MergeOpenAICodexTicketExtra(normalizedExtra, account.Extra)
 		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
 		account.Extra = normalizedExtra
@@ -1007,6 +1013,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	if !sameProxyID(previousProxyID, updated.ProxyID) || previousTimezoneMode != updated.OpenAIRequestTimezoneMode() || !hadTimezoneDetection {
+		s.scheduleOpenAIRequestTimezoneDetection(updated)
+	}
 	return updated, nil
 }
 
@@ -1056,6 +1065,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
 	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
+	delete(input.Extra, openAIRequestTimezoneDetectedExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
@@ -1285,6 +1295,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, err
 			}
 		}
+		s.scheduleOpenAIRequestTimezoneDetectionByIDs(ctx, input.AccountIDs)
 	}
 
 	// Handle group bindings per account (requires individual operations).
@@ -1427,10 +1438,16 @@ func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Ac
 	if err := s.accountRepo.ClearTempUnschedulable(ctx, id); err != nil {
 		return nil, err
 	}
-	if s.runtimeBlocker != nil {
-		s.runtimeBlocker.ClearAccountSchedulingBlock(id)
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	return s.accountRepo.GetByID(ctx, id)
+	AfterAccountCommit(ctx, func(context.Context) {
+		if s.runtimeBlocker != nil {
+			s.runtimeBlocker.ClearAccountSchedulingBlock(id)
+		}
+	})
+	return account, nil
 }
 
 func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
@@ -1457,6 +1474,7 @@ func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, id in
 	if err != nil {
 		return fmt.Errorf("get account after proxy revert: %w", err)
 	}
+	s.scheduleOpenAIRequestTimezoneDetection(account)
 	return s.propagateProxyToShadows(ctx, id, account.ProxyID)
 }
 

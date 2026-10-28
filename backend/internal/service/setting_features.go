@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	infraerrors "github.com/MACOS-DO/sub4api/internal/pkg/errors"
 )
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -566,7 +568,7 @@ func (s *SettingService) GetIdentityPatchPrompt(ctx context.Context) string {
 	return value
 }
 
-// GenerateAdminAPIKey 生成新的管理员 API Key
+// GenerateAdminAPIKey 轮换已存在的旧版管理员 API Key，不允许新建。
 func (s *SettingService) GenerateAdminAPIKey(ctx context.Context) (string, error) {
 	// 生成 32 字节随机数 = 64 位十六进制字符
 	bytes := make([]byte, 32)
@@ -576,9 +578,19 @@ func (s *SettingService) GenerateAdminAPIKey(ctx context.Context) (string, error
 
 	key := AdminAPIKeyPrefix + hex.EncodeToString(bytes)
 
-	// 存储到 settings 表
-	if err := s.settingRepo.Set(ctx, SettingKeyAdminAPIKey, key); err != nil {
+	// 旧版密钥只能轮换已有记录。使用条件 UPDATE，避免删除与轮换并发时被 upsert 重新创建。
+	repo, ok := s.settingRepo.(interface {
+		ReplaceExistingAdminAPIKey(context.Context, string) (bool, error)
+	})
+	if !ok {
+		return "", infraerrors.InternalServer("ADMIN_API_KEY_REPOSITORY_UNSUPPORTED", "旧版管理员密钥存储不支持原子轮换")
+	}
+	exists, err := repo.ReplaceExistingAdminAPIKey(ctx, key)
+	if err != nil {
 		return "", fmt.Errorf("save admin api key: %w", err)
+	}
+	if !exists {
+		return "", infraerrors.Forbidden("ADMIN_API_KEY_NOT_FOUND", "旧版密钥已停止新建，请创建权限管理密钥")
 	}
 
 	return key, nil
@@ -713,153 +725,6 @@ func (s *SettingService) SetOverloadCooldownSettings(ctx context.Context, settin
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyOverloadCooldownSettings, string(data))
-}
-
-// GetOpenAIFastBridgeSettings 获取 HTTP -> WS 桥接配置（web 控制，默认关闭）。
-func (s *SettingService) GetOpenAIFastBridgeSettings(ctx context.Context) (*OpenAIFastBridgeSettings, error) {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyOpenAIFastBridgeSettings)
-	if err != nil {
-		if errors.Is(err, ErrSettingNotFound) {
-			return DefaultOpenAIFastBridgeSettings(), nil
-		}
-		return nil, fmt.Errorf("get openai fast bridge settings: %w", err)
-	}
-	if value == "" {
-		return DefaultOpenAIFastBridgeSettings(), nil
-	}
-
-	// Existing JSON without scope uses all; adding scope never enables the bridge.
-	settings := DefaultOpenAIFastBridgeSettings()
-	if err := json.Unmarshal([]byte(value), settings); err != nil {
-		return DefaultOpenAIFastBridgeSettings(), nil
-	}
-	if settings.Scope != OpenAIFastBridgeScopeAll && settings.Scope != OpenAIFastBridgeScopeFastOnly {
-		return DefaultOpenAIFastBridgeSettings(), nil
-	}
-	return settings, nil
-}
-
-// SetOpenAIFastBridgeSettings 设置 HTTP -> WS 桥接配置。
-// Empty scope is reserved for legacy Go callers and preserves the stored scope.
-func (s *SettingService) SetOpenAIFastBridgeSettings(ctx context.Context, settings *OpenAIFastBridgeSettings) error {
-	if settings == nil {
-		return fmt.Errorf("settings cannot be nil")
-	}
-	var scope *string
-	if settings.Scope != "" {
-		scope = &settings.Scope
-	}
-	_, err := s.PatchOpenAIFastBridgeSettings(ctx, &settings.Enabled, scope)
-	return err
-}
-
-// PatchOpenAIFastBridgeSettings merges omitted fields with persisted settings under
-// the same lock as the save. Concurrent scope-only and enabled-only updates cannot
-// restore an old enable switch or discard a newly selected scope.
-func (s *SettingService) PatchOpenAIFastBridgeSettings(ctx context.Context, enabled *bool, scope *string) (*OpenAIFastBridgeSettings, error) {
-	if scope != nil && *scope != OpenAIFastBridgeScopeAll && *scope != OpenAIFastBridgeScopeFastOnly {
-		return nil, fmt.Errorf("scope must be all or fast_only")
-	}
-	s.openAIFastBridgeSettingsMu.Lock()
-	defer s.openAIFastBridgeSettingsMu.Unlock()
-	updated := DefaultOpenAIFastBridgeSettings()
-	if enabled == nil || scope == nil {
-		var err error
-		updated, err = s.GetOpenAIFastBridgeSettings(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if enabled != nil {
-		updated.Enabled = *enabled
-	}
-	if scope != nil {
-		updated.Scope = *scope
-	}
-	data, err := json.Marshal(updated)
-	if err != nil {
-		return nil, fmt.Errorf("marshal openai fast bridge settings: %w", err)
-	}
-	if err := s.settingRepo.Set(ctx, SettingKeyOpenAIFastBridgeSettings, string(data)); err != nil {
-		return nil, err
-	}
-	// Refresh both fields together; other nodes observe the save within one TTL.
-	s.storeOpenAIFastBridgeSettingsCache(*updated, openAIFastBridgeSettingsCacheTTL)
-	return updated, nil
-}
-
-const (
-	openAIFastBridgeSettingsCacheTTL  = 15 * time.Second
-	openAIFastBridgeSettingsErrorTTL  = 5 * time.Second
-	openAIFastBridgeSettingsDBTimeout = 5 * time.Second
-)
-
-type cachedOpenAIFastBridgeSettings struct {
-	settings  OpenAIFastBridgeSettings
-	expiresAt int64 // unix nano
-}
-
-// GetOpenAIFastBridgeSettingsCached returns one immutable snapshot for the gateway hot path.
-// Read failures disable the bridge and are retried after a shorter TTL.
-func (s *SettingService) GetOpenAIFastBridgeSettingsCached(ctx context.Context) OpenAIFastBridgeSettings {
-	if s == nil || s.settingRepo == nil {
-		return *DefaultOpenAIFastBridgeSettings()
-	}
-	if cached, ok := s.openAIFastBridgeSettingsCache.Load().(*cachedOpenAIFastBridgeSettings); ok && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.settings
-		}
-	}
-
-	result, _, _ := s.openAIFastBridgeSettingsSF.Do("openai_fast_bridge_settings", func() (any, error) {
-		// Hold the same lock as Set through the read and publication. A read started
-		// before a save must finish publishing before that save can publish its value.
-		s.openAIFastBridgeSettingsMu.Lock()
-		defer s.openAIFastBridgeSettingsMu.Unlock()
-		if cached, ok := s.openAIFastBridgeSettingsCache.Load().(*cachedOpenAIFastBridgeSettings); ok && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				return cached.settings, nil
-			}
-		}
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		// Detach request cancellation so a client disconnect cannot poison the cache.
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIFastBridgeSettingsDBTimeout)
-		defer cancel()
-
-		settings, err := s.GetOpenAIFastBridgeSettings(dbCtx)
-		if err != nil || settings == nil {
-			slog.Warn("failed to get openai fast bridge settings, treating bridge as disabled", "error", err)
-			defaults := *DefaultOpenAIFastBridgeSettings()
-			s.storeOpenAIFastBridgeSettingsCache(defaults, openAIFastBridgeSettingsErrorTTL)
-			return defaults, nil
-		}
-		s.storeOpenAIFastBridgeSettingsCache(*settings, openAIFastBridgeSettingsCacheTTL)
-		return *settings, nil
-	})
-	// A save may publish after the singleflight function unlocks but before a
-	// waiting caller receives its result. Prefer that newer published snapshot.
-	if cached, ok := s.openAIFastBridgeSettingsCache.Load().(*cachedOpenAIFastBridgeSettings); ok && cached != nil {
-		return cached.settings
-	}
-	settings, ok := result.(OpenAIFastBridgeSettings)
-	if !ok {
-		return *DefaultOpenAIFastBridgeSettings()
-	}
-	return settings
-}
-
-// IsOpenAIFastBridgeEnabledCached preserves the legacy boolean API.
-func (s *SettingService) IsOpenAIFastBridgeEnabledCached(ctx context.Context) bool {
-	return s.GetOpenAIFastBridgeSettingsCached(ctx).Enabled
-}
-
-func (s *SettingService) storeOpenAIFastBridgeSettingsCache(settings OpenAIFastBridgeSettings, ttl time.Duration) {
-	s.openAIFastBridgeSettingsCache.Store(&cachedOpenAIFastBridgeSettings{
-		settings:  settings,
-		expiresAt: time.Now().Add(ttl).UnixNano(),
-	})
 }
 
 // GetRateLimit429CooldownSettings 获取429默认回避配置

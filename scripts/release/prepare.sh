@@ -19,7 +19,7 @@ if [[ ! -f "$notes" ]] || ! grep -q '[^[:space:]#]' "$notes"; then
   echo "Missing or empty release notes: $notes" >&2
   exit 1
 fi
-python3 - "$notes" <<'PYNOTES'
+"${PYTHON:-python3}" - "$notes" <<'PYNOTES'
 import pathlib, sys
 body = pathlib.Path(sys.argv[1]).read_text().strip()
 if body.startswith('# '):

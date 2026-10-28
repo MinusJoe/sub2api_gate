@@ -1,13 +1,58 @@
 {
   "repository": "Wei-Shaw/sub2api",
-  "version": "0.2.18",
-  "commit": "5c185c5c5d4f5e409e2139806e0964ae944e03e8",
-  "previous_commit": "b0a02a3304a0a78cdd003ddda1dd23ba02c03084",
-  "sub4api_version": "1.1.14",
-  "method": "Three-way source merge with Sub4API module paths and customizations preserved",
+  "version": "0.2.19",
+  "commit": "a9240d5016c226b341242a8c54a01a8605cbbc72",
+  "previous_commit": "ac1b8f1271be0d674fa6f074403c1410f30a3a81",
+  "sub4api_repository": "MACOS-DO/sub4api",
+  "sub4api_version": "1.1.11",
+  "sub4api_commit": "fd6790fd0ef745f8f46fd91521bad8690ffab0cc",
+  "sub4api_tree": "08a5ff27fe0573cc7565bf05a6d2e4ac0cca13b5",
+  "method": "Three-way source merge from checksum-verified upstream 0.2.18 to main (0.2.19), preserving Sub4API module paths and dev customizations",
   "development_branch": "dev",
-  "release_base": {
-    "branch": "release/1.1.14",
-    "commit": "a65ae538159c5c97ca4483174322029ce4b3710d"
-  }
+  "customizations": [
+    "Current sidebar visibility switches and menu order",
+    "Cache read percentage in the usage latency cell",
+    "Group forced service tier and independent free Ultra Fast billing (Wei-Shaw/sub2api#8201, #8203)",
+    "Kimi Code device OAuth, token refresh, quota and request authentication from the previous dev implementation"
+  ],
+  "infrastructure": [
+    "Existing dev image workflow and startup smoke test"
+  ],
+  "conflict_resolution": {
+    "README.md": "Retain fork documentation",
+    "backend/cmd/server/VERSION": "Fork release version 1.1.12; upstream source version remains 0.2.19",
+    "backend/ent": "Regenerate from merged schema with image_count_billing, forced_service_tier and free_openai_ultrafast",
+    "backend/internal/repository/account_repo.go": "Preserve Grok model metadata and fork Codex ticket/BPS credential state together",
+    "backend/internal/service/admin_account.go": "Defer fork timezone discovery until account transaction commit",
+    "backend/internal/service/api_key_auth_cache_impl.go": "Bump snapshot version to 26 for combined upstream and fork fields",
+    "backend/internal/handler/admin/account_handler.go": "Preserve BPS model listing in the shared helper used by scoped admin API keys",
+    "backend/internal/service/setting_service.go": "Retain fork caches and add scoped admin key repository",
+    "frontend/src/components/account/EditAccountModal.vue": "Preserve BPS account editor and add Grok diagnostics lifecycle handling"
+  },
+  "test_compatibility": [
+    "Legacy Redis projection test now forces a cold read to exercise metadata validation under the 0.2.18 process-local memo",
+    "Inherited hypothesis tests expect the 0.2.18 default CLI identity",
+    "Protocol catalog fixtures have unique URLs per request even on coarse clocks",
+    "Stale cooldown fixtures use a distinct reset time even on coarse clocks"
+  ],
+  "feature_sources": {
+    "forced_service_tier": {
+      "issue": "https://github.com/Wei-Shaw/sub2api/issues/8201",
+      "original_commit": "ea23ccfede3bc736fb93c0302ec2dc30e4378beb"
+    },
+    "kimi_oauth": {
+      "previous_dev": "f1ed2e138832fe2ffb927c5280cd9967d6143cc4",
+      "original_commit": "56cc7e15b4e7f8b698ce3550f4ffbdc203b70b21",
+      "scope": "Kimi-specific authorization and gateway integration only"
+    }
+  },
+  "sync_date": "2026-10-28",
+  "previous_conflict_resolution": {
+    ".github/workflows/release.yml": "Retain Sub4API reusable release workflow",
+    "README.md": "Retain Sub4API project documentation",
+    "backend/cmd/server/VERSION": "Retain Sub4API 1.1.11",
+    "backend/internal/repository/scheduler_cache.go": "Retain Sub4API ticket projection validation before publishing 0.2.18 memoized snapshots",
+    "backend/internal/service/codex_ticket_hypothesis.go": "Use the 0.2.18 default CLI originator when validating the pinned-version request"
+  },
+  "release_version": "1.1.12"
 }

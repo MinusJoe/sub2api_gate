@@ -27,8 +27,7 @@ type OpenAIWSProtocolResolver interface {
 }
 
 type defaultOpenAIWSProtocolResolver struct {
-	cfg        *config.Config
-	modeRouter *openAIWSModeRouterSnapshot
+	cfg *config.Config
 }
 
 // NewOpenAIWSProtocolResolver 创建默认协议决策器。
@@ -68,14 +67,7 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 	} else {
 		return openAIWSHTTPDecision("unknown_auth_type")
 	}
-	modeRouterEnabled := wsCfg.ModeRouterV2Enabled
-	if r.modeRouter != nil {
-		if !r.modeRouter.valid {
-			return openAIWSHTTPDecision("mode_router_settings_unavailable")
-		}
-		modeRouterEnabled = r.modeRouter.enabled
-	}
-	if modeRouterEnabled {
+	if wsCfg.ModeRouterV2Enabled {
 		mode := account.ResolveOpenAIResponsesWebSocketV2Mode(wsCfg.IngressModeDefault)
 		switch mode {
 		case OpenAIWSIngressModeOff:

@@ -83,7 +83,6 @@ func (s *OpenAIGatewayService) BeginOpenAIWSIngressSessionPreemptionWithClient(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx = s.openAIWSModeRouterRequestContext(ctx, c)
 	if state, _ := ctx.Value(openAIWSSessionPreemptContextKey{}).(*openAIWSSessionPreemptState); state != nil {
 		return ctx, func() {}, true
 	}
@@ -93,11 +92,7 @@ func (s *OpenAIGatewayService) BeginOpenAIWSIngressSessionPreemptionWithClient(
 			_ = clientConn.Close(coderws.StatusTryAgainLater, openAIWSSessionPreemptedCloseReason)
 		}
 	}
-	snapshot := s.openAIWSModeRouterSnapshot(ctx)
-	if !snapshot.valid {
-		return ctx, func() {}, false
-	}
-	if s != nil && s.cfg != nil && snapshot.enabled && account != nil {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled && account != nil {
 		switch account.ResolveOpenAIResponsesWebSocketV2Mode(s.cfg.Gateway.OpenAIWS.IngressModeDefault) {
 		case OpenAIWSIngressModePassthrough, OpenAIWSIngressModeHTTPBridge:
 			// These modes own their upstream transport and replay state per

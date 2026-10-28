@@ -131,10 +131,6 @@ type UsageLog struct {
 	// ServiceTier records the billable request tier, e.g. OpenAI "priority" / "flex"
 	// or Anthropic "fast".
 	ServiceTier *string
-	// UpstreamServiceTier is the tier the upstream response echoed back, kept
-	// separate from ServiceTier: the private Codex backend can report
-	// "default" even when Fast was honored.
-	UpstreamServiceTier *string
 	// ReasoningEffort is the effective effort recorded for this request after
 	// group policy rewriting and model-family remapping (e.g. max -> xhigh).
 	// OpenAI: "low" / "medium" / "high" / "xhigh"; Claude: "low" / "medium" / "high" / "max".
@@ -181,7 +177,6 @@ type UsageLog struct {
 	RequestType        RequestType
 	Stream             bool
 	OpenAIWSMode       bool
-	TransportDetails   *UsageTransportDetails
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
@@ -191,9 +186,6 @@ type UsageLog struct {
 	// (e.g. the session_id / X-Session-Id headers). Nil when the client sent no
 	// valid session header. It is never derived from prompt_cache_key or content.
 	SessionID *string
-	// Derived from all retained valid text requests in this user's session.
-	SessionAverageOutputTPS *float64
-	SessionTPSRequestCount  int64
 	// UpstreamRequestID 是直接上游在响应头中声明的请求标识，只读账户
 	// extra.upstream_request_id_header 指定的头；账户未指定头名、WS 轮次
 	// 与上游没有该头的路径为 nil。

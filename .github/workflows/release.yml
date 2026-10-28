@@ -21,4 +21,3 @@ jobs:
     with:
       release-ref: ${{ inputs.tag || github.ref }}
     secrets: inherit
-

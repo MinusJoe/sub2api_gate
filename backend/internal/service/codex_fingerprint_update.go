@@ -64,7 +64,7 @@ func (s *SettingService) RefreshModelTraceBank(ctx context.Context) (string, err
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = response.Body.Close() }()
+		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("fingerprint source HTTP %d", response.StatusCode)
 		}

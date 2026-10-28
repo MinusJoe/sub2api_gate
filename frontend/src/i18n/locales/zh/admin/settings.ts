@@ -11,7 +11,6 @@ export default {
         gateway: '网关服务',
         email: '邮件设置',
         backup: '数据备份',
-        debugLogs: '调试 / 日志',
         payment: '支付设置',
       },
       features: {
@@ -70,6 +69,10 @@ export default {
           requireAuthHint: '开启后未登录访问将跳转登录页；关闭则公开可见，匿名访客仅展示非专属分组。',
           priceDescription: '价格说明（Markdown）',
           priceDescriptionHint: '展示在模型广场页面顶部，可用于说明计费规则、汇率、优惠活动等。',
+        },
+        sidebarMenus: {
+          title: '侧栏菜单',
+          description: '选择左侧菜单栏显示的入口，以下菜单默认全部关闭，保存后生效。',
         },
         pluginManagement: {
           title: '插件管理',
@@ -1077,34 +1080,6 @@ export default {
         cooldownMinutesHint: '账号暂停调度的持续时间（1-120 分钟）',
         saved: '过载冷却设置保存成功',
         saveFailed: '保存过载冷却设置失败'
-      },
-      openaiWSModeRouter: {
-        title: 'WS 模式路由',
-        description: '在网页管理账号级 WS 模式，无需修改容器环境变量。',
-        enabled: '启用新版 WS 模式路由',
-        hint: '开启后按账号选择的上下文池、独立透传或 HTTP 桥接运行；关闭后恢复旧兼容路由，并非禁用所有 WS。',
-        note: '保存后对本节点的新请求和新连接生效，其他节点最多约 5 秒同步；已建立连接保持原模式。此开关不覆盖全局 WS 禁用、强制 HTTP 或账号限制。',
-        sourceWeb: '当前来源：网页设置（优先于部署配置）',
-        sourceConfig: '当前来源：部署配置（配置文件或环境变量）',
-        inherit: '恢复部署配置',
-        retry: '重新加载',
-        saved: 'WS 模式路由设置已保存',
-        loadFailed: '无法加载 WS 模式路由设置，请重试。',
-        saveFailed: '保存 WS 模式路由设置失败',
-      },
-      openaiFastBridge: {
-        title: 'HTTP→WS 桥接',
-        description: '控制符合条件的 HTTP/SSE Responses / Messages 请求是否改走上游 Responses WebSocket',
-        enabled: '启用 HTTP→WS 桥接',
-        enabledHint: '总开关默认关闭，触发范围默认全部。仅适用于 ChatGPT OAuth/Codex 账号；普通请求遵守账号 WS 关闭设置，分组强制 Fast 保留既有覆盖例外，显式 force_http 始终优先。关闭本开关不会清除已选范围。',
-        scope: '桥接范围',
-        scopeAll: '全部符合条件的请求（默认）',
-        scopeFastOnly: '仅 Fast / Ultra Fast 请求',
-        scopeHint: '全局范围覆盖符合条件的 Responses / Messages OAuth/Codex 请求（含 standard）；仅 Fast 范围限 priority/ultrafast。均不覆盖 Chat Completions、API Key、passthrough 或 compact 请求。',
-        note: '此设置只选择传输方式，不会将 standard 升级为 Fast，也不改变原有计费规则。独立的分组 Fast 策略仍可生效；Fast 也可通过 HTTP 生效，选择 WS 不保证 Fast 一定生效。',
-        saved: 'HTTP→WS 桥接设置保存成功',
-        saveFailed: '保存 HTTP→WS 桥接设置失败',
-        loadFailed: '加载 HTTP→WS 桥接设置失败'
       },
       rateLimit429Cooldown: {
         title: '429 默认回避',

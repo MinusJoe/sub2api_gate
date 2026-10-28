@@ -125,12 +125,22 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ steps.meta.outputs.commit }}
             DATE=${{ steps.meta.outputs.date }}
+            GOPROXY=https://proxy.golang.org,direct
+            GOSUMDB=sum.golang.org
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify both release architectures start with PostgreSQL and Redis
+        if: steps.current.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_IMAGE: ${{ steps.meta.outputs.ghcr }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: bash scripts/ci/verify-dev-image.sh "$RELEASE_IMAGE@$IMAGE_DIGEST"
 
       - name: Render release notes
         if: steps.current.outputs.publish == 'true'

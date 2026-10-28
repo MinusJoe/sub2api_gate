@@ -61,6 +61,8 @@ config.local.yaml
 logs/
 
 # Temporary files
+/scratch/
+/.dsh-purge-backup/
 tmp/
 temp/
 *.tmp

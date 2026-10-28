@@ -16,14 +16,13 @@ import (
 )
 
 type OpsSystemLogSinkHealth struct {
-	QueueDepth          int64                            `json:"queue_depth"`
-	QueueCapacity       int64                            `json:"queue_capacity"`
-	DroppedCount        uint64                           `json:"dropped_count"`
-	WriteFailed         uint64                           `json:"write_failed_count"`
-	WrittenCount        uint64                           `json:"written_count"`
-	AvgWriteDelayMs     uint64                           `json:"avg_write_delay_ms"`
-	LastError           string                           `json:"last_error"`
-	DiagnosticRetention RequestDiagnosticRetentionHealth `json:"diagnostic_retention"`
+	QueueDepth      int64  `json:"queue_depth"`
+	QueueCapacity   int64  `json:"queue_capacity"`
+	DroppedCount    uint64 `json:"dropped_count"`
+	WriteFailed     uint64 `json:"write_failed_count"`
+	WrittenCount    uint64 `json:"written_count"`
+	AvgWriteDelayMs uint64 `json:"avg_write_delay_ms"`
+	LastError       string `json:"last_error"`
 }
 
 type OpsSystemLogSink struct {
@@ -43,26 +42,11 @@ type OpsSystemLogSink struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	lifecycleMu sync.Mutex
-	started     bool
-	stopped     bool
-
-	// A nil immutable policy pointer is policyConfigured=false until a valid
-	// settings load. The worker is independent of capture and general cleanup.
-	diagnosticRetentionPolicy     atomic.Pointer[RequestDiagnosticRetentionPolicy]
-	diagnosticRetentionLastRun    atomic.Pointer[RequestDiagnosticRetentionHealth]
-	diagnosticRetentionWake       chan struct{}
-	diagnosticRetentionInterval   time.Duration
-	diagnosticRetentionTimeout    time.Duration
-	diagnosticRetentionBackoff    time.Duration
-	diagnosticRetentionBackoffMax time.Duration
-
-	droppedCount              uint64
-	writeFailed               uint64
-	writtenCount              uint64
-	totalDelayNs              uint64
-	persistAccessLogs         atomic.Bool
-	persistRequestDiagnostics atomic.Bool
+	droppedCount      uint64
+	writeFailed       uint64
+	writtenCount      uint64
+	totalDelayNs      uint64
+	persistAccessLogs atomic.Bool
 
 	lastError atomic.Value
 }
@@ -80,20 +64,15 @@ func NewOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
 	ctx, cancel := context.WithCancel(context.Background())
 	rawHost, err := os.Hostname()
 	s := &OpsSystemLogSink{
-		opsRepo:                       opsRepo,
-		host:                          normalizeSystemLogHost(rawHost, err),
-		queue:                         make(chan *logger.LogEvent, 5000),
-		batchSize:                     200,
-		flushInterval:                 time.Second,
-		flushBackoff:                  defaultOpsSystemLogFlushBackoff,
-		flushBackoffMax:               defaultOpsSystemLogFlushBackoffMax,
-		ctx:                           ctx,
-		cancel:                        cancel,
-		diagnosticRetentionWake:       make(chan struct{}, 1),
-		diagnosticRetentionInterval:   requestDiagnosticRetentionInterval,
-		diagnosticRetentionTimeout:    requestDiagnosticRetentionTimeout,
-		diagnosticRetentionBackoff:    requestDiagnosticRetentionBackoff,
-		diagnosticRetentionBackoffMax: requestDiagnosticRetentionBackoffMax,
+		opsRepo:         opsRepo,
+		host:            normalizeSystemLogHost(rawHost, err),
+		queue:           make(chan *logger.LogEvent, 5000),
+		batchSize:       200,
+		flushInterval:   time.Second,
+		flushBackoff:    defaultOpsSystemLogFlushBackoff,
+		flushBackoffMax: defaultOpsSystemLogFlushBackoffMax,
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 	s.lastError.Store("")
 	return s
@@ -138,30 +117,15 @@ func (s *OpsSystemLogSink) Start() {
 	if s == nil || s.opsRepo == nil {
 		return
 	}
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
-	if s.started || s.stopped {
-		return
-	}
-	s.started = true
 	s.wg.Add(1)
 	go s.run()
-	if maintainer, ok := s.opsRepo.(RequestDiagnosticLogMaintainer); ok {
-		s.wg.Add(1)
-		go s.runRequestDiagnosticRetention(maintainer)
-	}
 }
 
 func (s *OpsSystemLogSink) Stop() {
 	if s == nil {
 		return
 	}
-	s.lifecycleMu.Lock()
-	s.stopped = true
-	if s.cancel != nil {
-		s.cancel()
-	}
-	s.lifecycleMu.Unlock()
+	s.cancel()
 	s.wg.Wait()
 }
 
@@ -177,9 +141,6 @@ func (s *OpsSystemLogSink) WriteLogEvent(event *logger.LogEvent) {
 		}
 	}
 
-	if isRequestDiagnosticEvent(event) {
-		event = projectRequestDiagnosticEvent(event)
-	}
 	select {
 	case s.queue <- event:
 	default:
@@ -196,70 +157,11 @@ func (s *OpsSystemLogSink) SetPersistAccessLogs(enabled bool) {
 	s.persistAccessLogs.Store(enabled)
 }
 
-// SetPersistRequestDiagnostics changes the lock-free diagnostic admission gate.
-func (s *OpsSystemLogSink) SetPersistRequestDiagnostics(enabled bool) {
-	if s != nil {
-		s.persistRequestDiagnostics.Store(enabled)
-	}
-}
-
-func (s *OpsSystemLogSink) RequestDiagnosticsEnabled() bool {
-	return s != nil && s.persistRequestDiagnostics.Load()
-}
-
-// Reserve the component and event even for warnings/errors, so a malformed or
-// disabled diagnostic cannot fall through into normal warning retention.
-func isRequestDiagnosticEvent(event *logger.LogEvent) bool {
-	if event == nil {
-		return false
-	}
-	return event.Component == logger.RequestDiagnosticsComponent ||
-		asString(event.Fields["component"]) == logger.RequestDiagnosticsComponent ||
-		event.Message == logger.MessagesWSLatencyEvent ||
-		asString(event.Fields["event"]) == logger.MessagesWSLatencyEvent
-}
-
-func admittedRequestDiagnosticEvent(event *logger.LogEvent) bool {
-	if event == nil || event.Message != logger.MessagesWSLatencyEvent {
-		return false
-	}
-	component := event.Component
-	if field, ok := event.Fields["component"]; ok {
-		value, valid := field.(string)
-		if !valid || value != logger.RequestDiagnosticsComponent {
-			return false
-		}
-		if component != "" && component != value {
-			return false
-		}
-		component = value
-	}
-	name, ok := event.Fields["event"].(string)
-	return component == logger.RequestDiagnosticsComponent && ok && name == logger.MessagesWSLatencyEvent
-}
-
-func projectRequestDiagnosticEvent(event *logger.LogEvent) *logger.LogEvent {
-	return &logger.LogEvent{
-		Time:       event.Time,
-		Level:      "info",
-		Component:  logger.RequestDiagnosticsComponent,
-		LoggerName: logger.RequestDiagnosticsComponent,
-		Message:    logger.MessagesWSLatencyEvent,
-		Fields:     logger.ProjectRequestDiagnosticFields(event.Fields),
-	}
-}
-
 func (s *OpsSystemLogSink) shouldIndex(event *logger.LogEvent) bool {
-	if s == nil || event == nil {
-		return false
-	}
-	if event.Fields != nil {
+	if event != nil && event.Fields != nil {
 		if skip, _ := event.Fields[logger.OpsSystemLogSkipField].(bool); skip {
 			return false
 		}
-	}
-	if isRequestDiagnosticEvent(event) {
-		return s.RequestDiagnosticsEnabled() && admittedRequestDiagnosticEvent(event)
 	}
 	level := strings.ToLower(strings.TrimSpace(event.Level))
 	switch level {
@@ -370,12 +272,6 @@ func (s *OpsSystemLogSink) flushBatch(baseCtx context.Context, batch []*logger.L
 		if event == nil {
 			continue
 		}
-		if isRequestDiagnosticEvent(event) {
-			if !s.shouldIndex(event) {
-				continue
-			}
-			event = projectRequestDiagnosticEvent(event)
-		}
 		createdAt := event.Time.UTC()
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
@@ -452,14 +348,13 @@ func (s *OpsSystemLogSink) Health() OpsSystemLogSinkHealth {
 
 	lastErr, _ := s.lastError.Load().(string)
 	return OpsSystemLogSinkHealth{
-		QueueDepth:          int64(len(s.queue)),
-		QueueCapacity:       int64(cap(s.queue)),
-		DroppedCount:        atomic.LoadUint64(&s.droppedCount),
-		WriteFailed:         atomic.LoadUint64(&s.writeFailed),
-		WrittenCount:        written,
-		AvgWriteDelayMs:     avgDelay,
-		LastError:           strings.TrimSpace(lastErr),
-		DiagnosticRetention: s.requestDiagnosticRetentionHealth(),
+		QueueDepth:      int64(len(s.queue)),
+		QueueCapacity:   int64(cap(s.queue)),
+		DroppedCount:    atomic.LoadUint64(&s.droppedCount),
+		WriteFailed:     atomic.LoadUint64(&s.writeFailed),
+		WrittenCount:    written,
+		AvgWriteDelayMs: avgDelay,
+		LastError:       strings.TrimSpace(lastErr),
 	}
 }
 

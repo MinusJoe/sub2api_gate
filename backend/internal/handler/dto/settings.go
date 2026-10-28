@@ -363,6 +363,8 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	SidebarMenuVisibility service.SidebarMenuVisibility `json:"sidebar_menu_visibility"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -456,6 +458,8 @@ type PublicSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	SidebarMenuVisibility service.SidebarMenuVisibility `json:"sidebar_menu_visibility"`
 }
 
 type LoginAgreementDocument struct {
@@ -468,12 +472,6 @@ type LoginAgreementDocument struct {
 type OverloadCooldownSettings struct {
 	Enabled         bool `json:"enabled"`
 	CooldownMinutes int  `json:"cooldown_minutes"`
-}
-
-// OpenAIFastBridgeSettings controls the optional HTTP -> WS upstream bridge.
-type OpenAIFastBridgeSettings struct {
-	Enabled bool   `json:"enabled"`
-	Scope   string `json:"scope"`
 }
 
 // RateLimit429CooldownSettings 429默认回避配置 DTO

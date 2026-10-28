@@ -395,7 +395,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		UpstreamResponseModel:    optionalTrimmedStringPtr(result.UpstreamResponseModel),
 		UpstreamModelMismatch:    upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
 		ServiceTier:              result.ServiceTier,
-		UpstreamServiceTier:      optionalTrimmedStringPtr(result.UpstreamResponseServiceTier),
 		ReasoningEffort:          result.ReasoningEffort,
 		RequestedReasoningEffort: coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort),
 		InboundEndpoint:          optionalTrimmedStringPtr(input.InboundEndpoint),
@@ -413,20 +412,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:       imageSizeBreakdown,
 		NativeCompactionV2:       input.NativeCompactionV2,
-	}
-	if result.ServiceTier != nil {
-		outboundTier := strings.TrimSpace(*result.ServiceTier)
-		echoTier := strings.TrimSpace(result.UpstreamResponseServiceTier)
-		if outboundTier != "" && echoTier != "" && !strings.EqualFold(echoTier, outboundTier) {
-			logger.L().Info("openai_service_tier_echo_mismatch",
-				zap.String("request_id", requestID),
-				zap.Int64("account_id", account.ID),
-				zap.String("account_type", string(account.Type)),
-				zap.String("model", result.Model),
-				zap.String("outbound_service_tier", outboundTier),
-				zap.String("upstream_service_tier", echoTier),
-			)
-		}
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
@@ -460,7 +445,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}
 	usageLog.OpenAIWSMode = result.OpenAIWSMode
-	usageLog.TransportDetails = NormalizeUsageTransportDetails(result.TransportDetails)
 	usageLog.DurationMs = &durationMs
 	usageLog.FirstTokenMs = result.FirstTokenMs
 	usageLog.CreatedAt = time.Now()
@@ -637,7 +621,11 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 
 	if result != nil && result.ImageCount > 0 {
-		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
+		// 分组显式开启按张计费且来自图片端点时强制走图片计费；否则渠道 token 定价优先。
+		// 混合的 Responses/Chat/WS 请求即使产出了图片，也不能因开关丢失文本 token 费用。
+		if imageCountBillingApplies(apiKey, result.ImageEndpoint) {
+			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+		}
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}

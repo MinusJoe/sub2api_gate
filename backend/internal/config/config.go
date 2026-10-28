@@ -1042,12 +1042,9 @@ type GatewayConfig struct {
 	// OpenAICompactModel: /responses/compact 上游使用的模型。
 	// compact 端点支持模型滞后于普通 /responses 时，可用该配置降级规避上游错误。
 	OpenAICompactModel string `mapstructure:"openai_compact_model"`
-	// OpenAICodexTicket: ChatGPT OAuth 账号按 (账号, 模型) 捕获 x-codex-turn-state
-	// （官方当前为 ~780 字符 Fernet 形态），并在业务请求中按 turn_state_mode 注入。
-	// 默认关闭；probe_enabled 控制是否运行独立打票探针（默认 false）。
+	// OpenAICodexTicket: ChatGPT OAuth 账号按 (账号, 模型) 捕获 292 长度
+	// x-codex-turn-state，并在住宅 IP 业务请求中注入该头。默认关闭。
 	OpenAICodexTicket OpenAICodexTicketConfig `mapstructure:"openai_codex_ticket"`
-	// OpenAICodexDegradation: 真实流量降智信号聚合与可选冷却（默认 observe-only）。
-	OpenAICodexDegradation CodexDegradationConfig `mapstructure:"openai_codex_degradation"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
 	// Live: ChatGPT Frameless Live 会话配置。
@@ -1115,6 +1112,8 @@ type GatewayConfig struct {
 	MaxAccountSwitches int `mapstructure:"max_account_switches"`
 	// Gemini 账户切换最大次数（Gemini 平台单独配置，因 API 限制更严格）
 	MaxAccountSwitchesGemini int `mapstructure:"max_account_switches_gemini"`
+	// Gemini 同账号重试次数（429/5xx 等可重试错误在换号前对同一账号的重发次数，不含首次请求）
+	MaxSameAccountRetriesGemini int `mapstructure:"max_same_account_retries_gemini"`
 
 	// Antigravity 429 fallback 限流时间（分钟），解析重置时间失败时使用
 	AntigravityFallbackCooldownMinutes int `mapstructure:"antigravity_fallback_cooldown_minutes"`
@@ -1278,78 +1277,6 @@ type OpenAICodexTicketConfig struct {
 	HarvestRetryMinSeconds       int      `mapstructure:"harvest_retry_min_seconds"`
 	HarvestRetryMaxSeconds       int      `mapstructure:"harvest_retry_max_seconds"`
 	HarvestRefreshSeconds        int      `mapstructure:"harvest_refresh_seconds"`
-	// ProbeEnabled 控制独立的打票探针（主动 POST /responses 诱使上游铸票）。
-	// 默认 false：不再产生探针流量；票捕获改为「业务响应头回收 + 客户端 relay」。
-	ProbeEnabled bool `mapstructure:"probe_enabled"`
-	// TurnStateMode 控制出站 x-codex-turn-state 的处理方式：
-	//   relay   (默认) 只保留客户端自己的票（跨账号剥离仍生效），不注入共享票；
-	//   harvest        注入已捕获的 (账号, 模型) 票（旧行为，受校验/TTL 约束）；
-	//   off            完全不碰该头。
-	TurnStateMode string `mapstructure:"turn_state_mode"`
-}
-
-// CodexDegradationConfig 控制「真实流量降智信号」的聚合与可选冷却。
-//
-// 信号来源（全部来自上游响应，不新增出站请求）：
-//   - 响应头 OpenAI-Model / X-Openai-Model（事件 headers JSON 的小写变体规范化键）
-//   - 响应头 x-codex-safety-buffering-enabled / -faster-model
-//   - 响应头 x-codex-rate-limit-reached-type / -active-limit / -credits-balance（观测-only）
-//   - SSE/WS 事件 response.metadata type=safety_buffering
-//   - 流内 response.model / response.created.response.model
-//
-// 默认 ObserveOnly=true：只聚合与暴露指标，不改变调度。显式关闭后，窗口内降智比例
-// 达到阈值才会对 (账号, 模型) 应用冷却，避免单次抖动造成账号漂移。
-type CodexDegradationConfig struct {
-	Enabled                bool    `mapstructure:"enabled"`
-	ObserveOnly            bool    `mapstructure:"observe_only"`
-	WindowSeconds          int     `mapstructure:"window_seconds"`
-	MinSamples             int     `mapstructure:"min_samples"`
-	DegradedRatioThreshold float64 `mapstructure:"degraded_ratio_threshold"`
-	CooldownSeconds        int     `mapstructure:"cooldown_seconds"`
-	// CooldownBackoffMultiplier 重复触发的指数退避乘数：第 n 次连续触发（n≥1）的
-	// 冷却时长为 cooldown_seconds × multiplier^(n-1)，封顶 MaxCooldownSeconds。
-	// 默认 2；设为 1 关闭累积（保持一次性冷却）。窗口内出现无降智样本即清零连续
-	// 计数。仅 ObserveOnly=false 时可达，不影响任何上游可见行为。
-	CooldownBackoffMultiplier float64 `mapstructure:"cooldown_backoff_multiplier"`
-	// MaxCooldownSeconds 单次冷却时长上限（秒），默认 1800。
-	MaxCooldownSeconds int `mapstructure:"max_cooldown_seconds"`
-	// DownstreamHeaderEnabled 将降智判定以响应头透出给下游（默认关闭）：
-	// x-sub4api-codex-served-model=<实际服务模型>、
-	// x-sub4api-codex-degraded=model_mismatch|safety_buffering（无判定则不写）。
-	// 属下游可见契约变化（非上游）；仅写响应头，不改变任何出站行为。
-	DownstreamHeaderEnabled bool `mapstructure:"downstream_header_enabled"`
-}
-
-// Normalized 返回填充零值安全默认后的副本；调用方无需自己处理 0 值。
-func (c CodexDegradationConfig) Normalized() CodexDegradationConfig {
-	if c.WindowSeconds <= 0 {
-		c.WindowSeconds = 1200
-	}
-	if c.MinSamples <= 0 {
-		c.MinSamples = 10
-	}
-	if c.DegradedRatioThreshold <= 0 || c.DegradedRatioThreshold > 1 {
-		c.DegradedRatioThreshold = 0.5
-	}
-	if c.CooldownSeconds <= 0 {
-		c.CooldownSeconds = 300
-	}
-	if c.CooldownBackoffMultiplier == 0 {
-		c.CooldownBackoffMultiplier = 2
-	}
-	if c.CooldownBackoffMultiplier < 1 {
-		c.CooldownBackoffMultiplier = 1
-	}
-	if c.MaxCooldownSeconds <= 0 {
-		c.MaxCooldownSeconds = 1800
-	}
-	return c
-}
-
-// Window 返回归一化后的聚合窗口。
-func (c CodexDegradationConfig) Window() time.Duration {
-	c = c.Normalized()
-	return time.Duration(c.WindowSeconds) * time.Second
 }
 
 // DefaultOpenAIWSClientFirstMessageTimeoutSeconds preserves the legacy ingress deadline.
@@ -2530,6 +2457,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.failover_on_400", false)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
+	viper.SetDefault("gateway.max_same_account_retries_gemini", 4)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
@@ -2538,7 +2466,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	// Ticket harvesting is opt-in; explicit settings or YAML/env can enable it.
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
-	viper.SetDefault("gateway.openai_codex_ticket.target_length", 780)
+	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
 	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 3600)
 	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 600)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
@@ -2549,19 +2477,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_retry_min_seconds", 10)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_retry_max_seconds", 30)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_refresh_seconds", 1800)
-	// 探针默认关闭；票捕获改用业务响应头回收 + 客户端 relay（官方契约通道）。
-	viper.SetDefault("gateway.openai_codex_ticket.probe_enabled", false)
-	viper.SetDefault("gateway.openai_codex_ticket.turn_state_mode", "relay")
-	// 降智观测默认开启但 observe-only，只聚合指标不改变调度。
-	viper.SetDefault("gateway.openai_codex_degradation.enabled", true)
-	viper.SetDefault("gateway.openai_codex_degradation.observe_only", true)
-	viper.SetDefault("gateway.openai_codex_degradation.window_seconds", 1200)
-	viper.SetDefault("gateway.openai_codex_degradation.min_samples", 10)
-	viper.SetDefault("gateway.openai_codex_degradation.degraded_ratio_threshold", 0.5)
-	viper.SetDefault("gateway.openai_codex_degradation.cooldown_seconds", 300)
-	viper.SetDefault("gateway.openai_codex_degradation.cooldown_backoff_multiplier", 2)
-	viper.SetDefault("gateway.openai_codex_degradation.max_cooldown_seconds", 1800)
-	viper.SetDefault("gateway.openai_codex_degradation.downstream_header_enabled", false)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2664,7 +2579,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_conns_per_host", 1024)      // 每主机最大连接数（含活跃；流式/HTTP1.1 场景可调大，如 2400+）
 	viper.SetDefault("gateway.idle_conn_timeout_seconds", 90) // 空闲连接超时（秒）
 	viper.SetDefault("gateway.max_upstream_clients", 5000)
-	viper.SetDefault("gateway.client_idle_ttl_seconds", 3600)    // 上游客户端缓存 TTL（秒），与 repository.http_upstream 默认一致
+	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
@@ -3492,6 +3407,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 1800 {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")
+	}
+	if c.Gateway.MaxSameAccountRetriesGemini < 0 || c.Gateway.MaxSameAccountRetriesGemini > 10 {
+		return fmt.Errorf("gateway.max_same_account_retries_gemini must be between 0-10")
 	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 30) {

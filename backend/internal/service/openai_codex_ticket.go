@@ -30,7 +30,42 @@ const (
 	openAICodexTicketStatePrefix     = "gAAAAA"
 	openAICodexTicketDefaultModel    = "gpt-6-astra"
 	openAICodexTicketDefaultSolModel = "gpt-5.6-sol"
+
+	// 票据有效期设置边界：最少 1 分钟，避免产生剧烈的打票循环。
+	openAICodexTicketMinTTLSeconds     = 60
+	openAICodexTicketMaxTTLSeconds     = 86400
+	openAICodexTicketDefaultTTLSeconds = 200
+
+	// 票据过期后最长复用时长：0 表示不限制，默认 600 秒。
+	openAICodexTicketDefaultReuseWindowSeconds = 600
 )
+
+// normalizeOpenAICodexTicketTTLSeconds 归一化票据有效期：非正数回落默认值，
+// 越界夹取到 [60, 86400]。
+func normalizeOpenAICodexTicketTTLSeconds(seconds int) int {
+	if seconds <= 0 {
+		return openAICodexTicketDefaultTTLSeconds
+	}
+	if seconds < openAICodexTicketMinTTLSeconds {
+		return openAICodexTicketMinTTLSeconds
+	}
+	if seconds > openAICodexTicketMaxTTLSeconds {
+		return openAICodexTicketMaxTTLSeconds
+	}
+	return seconds
+}
+
+// normalizeOpenAICodexTicketReuseWindowSeconds 归一化过期后最长复用时长：
+// 负数回退默认值，越界夹取到 [0, 86400]；0 表示不限制。
+func normalizeOpenAICodexTicketReuseWindowSeconds(seconds int) int {
+	if seconds < 0 {
+		return openAICodexTicketDefaultReuseWindowSeconds
+	}
+	if seconds > openAICodexTicketMaxTTLSeconds {
+		return openAICodexTicketMaxTTLSeconds
+	}
+	return seconds
+}
 
 // ErrOpenAICodexTicketUnavailable 表示该号该模型没有符合账号规则的有效门票，
 // 且 fail_closed 禁止裸打业务请求。
@@ -107,50 +142,7 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 		cfg.HarvestRetryMaxSeconds = cfg.HarvestRetryMinSeconds
 	}
 	cfg.Models, _ = ModelTraceTicketModels()
-	cfg.TurnStateMode = normalizeOpenAICodexTurnStateMode(cfg.TurnStateMode)
 	return cfg
-}
-
-// Codex 票出站模式（配置 gateway.openai_codex_ticket.turn_state_mode）。
-const (
-	openAICodexTurnStateModeRelay   = "relay"
-	openAICodexTurnStateModeHarvest = "harvest"
-	openAICodexTurnStateModeOff     = "off"
-)
-
-func normalizeOpenAICodexTurnStateMode(mode string) string {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case openAICodexTurnStateModeHarvest:
-		return openAICodexTurnStateModeHarvest
-	case openAICodexTurnStateModeRelay:
-		return openAICodexTurnStateModeRelay
-	case openAICodexTurnStateModeOff:
-		return openAICodexTurnStateModeOff
-	case "":
-		// 零值配置（测试/工具手工构造 Config，未经过 viper 默认值）保持旧行为；
-		// 生产配置由 viper 默认置为 relay，因此默认出站不会再注入共享票。
-		return openAICodexTurnStateModeHarvest
-	default:
-		return openAICodexTurnStateModeRelay
-	}
-}
-
-func (s *OpenAIGatewayService) openAICodexTurnStateMode() string {
-	return normalizeOpenAICodexTurnStateMode(s.openAICodexTicketConfig().TurnStateMode)
-}
-
-// openAICodexTicketProbeEnabled 控制独立打票探针；默认关闭，避免周期性机器流量。
-func (s *OpenAIGatewayService) openAICodexTicketProbeEnabled() bool {
-	return s.openAICodexTicketConfig().ProbeEnabled
-}
-
-// openAICodexTicketTTL 返回票有效期；0 时回退 3600s，保持历史配置兼容。
-func (s *OpenAIGatewayService) openAICodexTicketTTL() time.Duration {
-	ttl := s.openAICodexTicketConfig().TTLSeconds
-	if ttl <= 0 {
-		ttl = 3600
-	}
-	return time.Duration(ttl) * time.Second
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketGatedModel(model string) bool {
@@ -232,80 +224,17 @@ func (s *OpenAIGatewayService) openAICodexTicketEnabledContext(ctx context.Conte
 	return fallback
 }
 
-// 票形状校验：官方当前票据为 Fernet 形态（`gAAAAA` 前缀，实测 780 字符）；
-// 2026-09 前社区口径 292 已过时，因此按区间校验而不是单点长度。
-const (
-	openAICodexTicketMinStateLength = 200
-	openAICodexTicketMaxStateLength = 2048
-)
-
-func openAICodexTicketMethodAllowed(method string) bool {
-	switch strings.TrimSpace(method) {
-	case "modeltrace_v1", "business_response_v1":
-		return true
-	default:
-		return false
-	}
+// structurallyValid 只校验票据形状（长度规则与 gAAAAA 前缀），不看有效期。
+func (t *openAICodexTicket) structurallyValid(_ int) bool {
+	return t != nil && t.GenerationID != "" && t.VerificationMethod == "modeltrace_v1" && t.FingerprintCommit != "" && (strings.TrimSpace(t.State) != "" || strings.TrimSpace(t.Cookie) != "")
 }
 
-func openAICodexTicketStateShapeValid(state string, expectedLength int) bool {
-	state = strings.TrimSpace(state)
-	if state == "" {
-		return false
-	}
-	if !strings.HasPrefix(state, openAICodexTicketStatePrefix) {
-		return false
-	}
-	if len(state) < openAICodexTicketMinStateLength || len(state) > openAICodexTicketMaxStateLength {
-		return false
-	}
-	if expectedLength > 0 && len(state) > expectedLength*2 {
-		return false
-	}
-	return true
+func (t *openAICodexTicket) usable(_ time.Time, _ int, _ bool, _ time.Duration) bool {
+	return t.structurallyValid(0)
 }
 
-// structurallyValid 校验票据形状；对历史 modeltrace_v1 票保持兼容（升级不回滚
-// 已存票据），对新增的 business_response_v1 票强制 Fernet 形状（前缀 + 长度区间）。
-func (t *openAICodexTicket) structurallyValid(expectedLength int) bool {
-	if t == nil || t.GenerationID == "" || !openAICodexTicketMethodAllowed(t.VerificationMethod) {
-		return false
-	}
-	state := strings.TrimSpace(t.State)
-	if state == "" {
-		return false
-	}
-	switch t.VerificationMethod {
-	case "business_response_v1":
-		return openAICodexTicketStateShapeValid(state, expectedLength)
-	default: // modeltrace_v1：兼容历史票据，只做最小形状校验。
-		if strings.TrimSpace(t.FingerprintCommit) == "" {
-			return false
-		}
-		return !strings.ContainsAny(state, "\r\n")
-	}
-}
-
-// usable 在形状校验之外检查有效期；cookie-only 票不可用于注入（避免制造
-// 「有 __oailb、无 turn-state」的非官方组合）。
-func (t *openAICodexTicket) usable(now time.Time, expectedLength int, allowCookieOnly bool, ttl time.Duration) bool {
-	if !t.structurallyValid(expectedLength) {
-		return false
-	}
-	if strings.TrimSpace(t.State) == "" {
-		return allowCookieOnly && strings.TrimSpace(t.Cookie) != ""
-	}
-	expiresAt := t.ExpiresAt
-	if expiresAt.IsZero() && !t.CapturedAt.IsZero() && ttl > 0 {
-		expiresAt = t.CapturedAt.Add(ttl)
-	}
-	if expiresAt.IsZero() {
-		return false
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	return now.Before(expiresAt)
+func (t *openAICodexTicket) valid(_ time.Time, _ int) bool {
+	return t.structurallyValid(0)
 }
 
 func (s *OpenAIGatewayService) lookupOpenAICodexTicket(account *Account, model string) *openAICodexTicket {
@@ -385,20 +314,12 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithGeneration(ctx context.
 	if s == nil || h == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabledContext(ctx) {
 		return nil, nil
 	}
-	// relay/off 模式绝不覆盖客户端自己的票；跨账号剥离由调用方 guard 完成。
-	switch s.openAICodexTurnStateMode() {
-	case openAICodexTurnStateModeRelay, openAICodexTurnStateModeOff:
-		return nil, nil
-	}
 	model = normalizeOpenAICodexTicketModel(model)
 	if model == "" || !s.openAICodexTicketGatedModel(model) {
 		return nil, nil
 	}
 	var ticket *openAICodexTicket
 	if s.openaiCodexTicketLifecycle != nil {
-		// The database owns the current generation. Never publish request-side
-		// reads into a cache: a concurrent invalidation or harvest can make them
-		// stale before this call returns, regardless of their capture timestamp.
 		raw, err := s.openaiCodexTicketLifecycle.CurrentTicket(ctx, account.ID, model)
 		if err != nil {
 			return nil, err
@@ -413,7 +334,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithGeneration(ctx context.
 	} else {
 		ticket = s.lookupOpenAICodexTicket(account, model)
 	}
-	if ticket.usable(time.Now(), s.openAICodexTicketConfig().TargetLength, false, s.openAICodexTicketTTL()) {
+	if ticket.usable(time.Now(), 0, false, 0) {
 		if ticket.State != "" {
 			h.Set(openAICodexTurnStateHeader, ticket.State)
 		} else {
@@ -481,14 +402,6 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 	if s == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
 		return false
 	}
-	// relay/off 出站不注入票（applyOpenAICodexTicketWithGeneration 同口径直接放行），
-	// 调度侧必须同样放行：probe 默认关闭、业务回收只在 harvest 写库时，relay 模式
-	// 没有任何补票渠道；若继续按缺票阻断，存票到达 usable 强制有效期后整个
-	// fail_closed 部署会被锁死在调度器外且无法自动恢复。
-	switch s.openAICodexTurnStateMode() {
-	case openAICodexTurnStateModeRelay, openAICodexTurnStateModeOff:
-		return false
-	}
 	model := normalizeOpenAICodexTicketModel(outboundModel)
 	if s.openAICodexAllowsWithoutTicket(context.Background(), account, model) {
 		return false
@@ -507,7 +420,7 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 		}
 	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
-	return !ticket.usable(time.Now(), s.openAICodexTicketConfig().TargetLength, false, s.openAICodexTicketTTL())
+	return !ticket.usable(time.Now(), 0, false, 0)
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, challenge ModelTraceChallenge, attemptTimeout time.Duration) (output string, state string, cookie string, status int, err error) {
@@ -566,7 +479,7 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 		}
 		eventType := gjson.Get(payload, "type").String()
 		if eventType == "response.output_text.delta" {
-			_, _ = deltas.WriteString(gjson.Get(payload, "delta").String())
+			deltas.WriteString(gjson.Get(payload, "delta").String())
 		}
 		if eventType == "response.completed" {
 			gjson.Get(payload, "response.output").ForEach(func(_, message gjson.Result) bool {
@@ -607,6 +520,14 @@ func extractOpenAICodexResponseCookies(h http.Header) string {
 		pairs = append(pairs, item.Name+"="+item.Value)
 	}
 	return strings.Join(pairs, "; ")
+}
+
+func jsonString(v string) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
 }
 
 func applyOpenAICodexTicketHarvestIdentity(h http.Header, model string) {
@@ -711,11 +632,7 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestLoop(ctx context.Context)
 					logger.L().Warn("openai_codex_ticket history cleanup failed", zap.Error(err))
 				}
 			}
-			// 探针默认关闭：票捕获改为业务响应头回收 + 客户端 relay，
-			// 这里不得再周期性伪造 /responses 请求（上游可见的机器流量）。
-			if s.openAICodexTicketProbeEnabled() {
-				s.refreshOpenAICodexTickets(ctx)
-			}
+			s.refreshOpenAICodexTickets(ctx)
 			timer.Reset(s.openAICodexTicketNextScanDelay(time.Now()))
 		}
 	}

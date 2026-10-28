@@ -125,7 +125,7 @@ func TestCodexTicketObservationDispatchSnapshotAndDiagnostics(t *testing.T) {
 			req = req.WithContext(WithCodexTicketDiagnostic(req.Context(), account.ID))
 			resp, err := svc.doOpenAIUpstream(req, "", account)
 			require.NoError(t, err)
-			_ = resp.Body.Close()
+			resp.Body.Close()
 			require.Len(t, capture.events, 1)
 			event := capture.events[0]
 			require.Equal(t, generation, event.TicketGenerationID)
@@ -231,7 +231,7 @@ func TestCodexTicketObservationRequiresMatchingGenerationCredentials(t *testing.
 				req.Header.Set(openAICodexTurnStateHeader, test.sentState)
 				req.Header.Set("Cookie", test.sentCookie)
 				response := changedTicketResponse()
-				defer func() { _ = response.Body.Close() }()
+				defer response.Body.Close()
 				if transport == "http" {
 					svc.observeCodexTicketResponse(req, response, account)
 				} else {

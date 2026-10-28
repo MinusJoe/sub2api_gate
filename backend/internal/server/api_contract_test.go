@@ -381,6 +381,7 @@ func TestAPIContracts(t *testing.T) {
 						"audio_realtime_price_per_min": null,
 						"allow_image_generation": false,
 						"allow_batch_image_generation": false,
+						"image_count_billing": false,
 						"batch_image_discount_multiplier": 0,
 						"batch_image_hold_multiplier": 0,
 						"image_rate_independent": false,
@@ -616,8 +617,6 @@ func TestAPIContracts(t *testing.T) {
 							"stream": true,
 							"duration_ms": 100,
 							"first_token_ms": 50,
-							"session_average_output_tps": null,
-							"session_tps_request_count": 0,
 							"image_count": 0,
 							"image_size": null,
 							"image_input_size": null,
@@ -1017,6 +1016,7 @@ func TestAPIContracts(t *testing.T) {
 					"model_plaza_require_auth": false,
 					"model_plaza_description": "",
 					"plugin_management_enabled": false,
+					"sidebar_menu_visibility": {"channels": false, "announcements": false, "redeem_codes": false, "promo_codes": false, "admin_subscriptions": false, "subscriptions": false, "redeem": false, "profile": false, "audit_logs": false},
 					"risk_control_enabled": false,
 					"cyber_policy_user_allowlist": "",
 					"cyber_session_block_enabled": false,
@@ -1345,6 +1345,7 @@ func TestAPIContracts(t *testing.T) {
 					"model_plaza_require_auth": false,
 					"model_plaza_description": "",
 					"plugin_management_enabled": false,
+					"sidebar_menu_visibility": {"channels": false, "announcements": false, "redeem_codes": false, "promo_codes": false, "admin_subscriptions": false, "subscriptions": false, "redeem": false, "profile": false, "audit_logs": false},
 					"risk_control_enabled": false,
 					"cyber_policy_user_allowlist": "",
 					"cyber_session_block_enabled": false,
@@ -1442,46 +1443,6 @@ func TestAPIContracts(t *testing.T) {
 			status, body := doRequest(t, deps.router, tt.method, tt.path, tt.body, tt.headers)
 			require.Equal(t, tt.wantStatus, status)
 			require.JSONEq(t, tt.wantJSON, body)
-		})
-	}
-}
-
-func TestUsageSessionMetricsAPIContract(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		session *string
-		rate    *float64
-		count   int64
-	}{
-		{name: "unavailable"},
-		{name: "session-average", session: ptr("conversation-1"), rate: ptr(62.5), count: 4},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			deps := newContractDeps(t)
-			deps.usageRepo.SetUserLogs(1, []service.UsageLog{{
-				ID: 1, UserID: 1, APIKeyID: 100, AccountID: 200,
-				RequestID: "session-metrics-contract", Model: "claude-3", CreatedAt: deps.now,
-				SessionID: tc.session, SessionAverageOutputTPS: tc.rate, SessionTPSRequestCount: tc.count,
-			}})
-			status, body := doRequest(t, deps.router, http.MethodGet, "/api/v1/usage?page=1&page_size=10", "", nil)
-			require.Equal(t, http.StatusOK, status)
-			var response struct {
-				Data struct {
-					Items []map[string]any `json:"items"`
-				} `json:"data"`
-			}
-			require.NoError(t, json.Unmarshal([]byte(body), &response))
-			require.Len(t, response.Data.Items, 1)
-			item := response.Data.Items[0]
-			require.Contains(t, item, "session_average_output_tps")
-			require.Equal(t, float64(tc.count), item["session_tps_request_count"])
-			if tc.rate == nil {
-				require.Nil(t, item["session_average_output_tps"])
-				require.NotContains(t, item, "session_id")
-			} else {
-				require.Equal(t, *tc.rate, item["session_average_output_tps"])
-				require.Equal(t, *tc.session, item["session_id"])
-			}
 		})
 	}
 }

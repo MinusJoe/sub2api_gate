@@ -133,12 +133,6 @@
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                       </button>
-                      <button class="account-tools-menu-item" @click="openCodexDegradationMetrics">
-                        <span class="account-tools-menu-icon bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300">
-                          <Icon name="chart" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">{{ t('admin.accounts.codexDegradation.title') }}</span>
-                      </button>
 
                       <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
                       <div class="px-2 py-2">
@@ -503,72 +497,6 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
-    <Teleport to="body">
-      <div v-if="showCodexDegradation" class="fixed inset-0 z-[10000] flex items-center justify-center bg-gray-950/60 p-2 backdrop-blur-sm sm:p-6" @click.self="showCodexDegradation = false">
-        <section role="dialog" aria-modal="true" :aria-label="t('admin.accounts.codexDegradation.title')" class="flex max-h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 shadow-2xl dark:border-dark-600 dark:bg-dark-900">
-          <header class="flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4 dark:border-dark-700 dark:bg-dark-800 sm:px-7 sm:py-5">
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-xs font-semibold text-primary-600 dark:text-primary-400">CODEX</p>
-              <h2 class="mt-1 text-xl font-semibold text-gray-900 dark:text-white">{{ t('admin.accounts.codexDegradation.title') }}</h2>
-              <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.codexDegradation.subtitle') }}</p>
-            </div>
-            <div class="flex shrink-0 items-center gap-2">
-              <span v-if="codexDegradationData" class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" :class="codexDegradationData.config.observe_only ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'">
-                {{ codexDegradationData.config.observe_only ? t('admin.accounts.codexDegradation.observeOnly') : t('admin.accounts.codexDegradation.cooling') }}
-              </span>
-              <button type="button" class="btn btn-secondary !px-3 !py-1.5 !text-xs" :disabled="codexDegradationLoading" @click="loadCodexDegradationMetrics">{{ t('admin.accounts.codexDegradation.refresh') }}</button>
-              <button type="button" class="btn btn-danger !px-3 !py-1.5 !text-xs" :disabled="codexDegradationResetting || !codexDegradationData?.entries.length" @click="handleResetCodexDegradationMetrics">{{ t('admin.accounts.codexDegradation.reset') }}</button>
-              <button type="button" class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-700" :aria-label="t('common.close')" @click="showCodexDegradation = false">✕</button>
-            </div>
-          </header>
-          <div class="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-7">
-            <div v-if="codexDegradationError" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300">{{ codexDegradationError }}</div>
-            <div v-if="codexDegradationLoading && !codexDegradationData" class="py-8 text-center text-sm text-gray-500 dark:text-dark-400">{{ t('common.loading') }}</div>
-            <div v-else-if="!codexDegradationData?.entries.length" class="py-8 text-center text-sm text-gray-500 dark:text-dark-400">{{ t('admin.accounts.codexDegradation.empty') }}</div>
-            <div v-else class="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
-              <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
-                <thead class="bg-gray-50 dark:bg-dark-900/60">
-                  <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-400">
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.account') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.model') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.total') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.degraded') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.modelMismatch') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.safetyBuffering') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.window') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2 text-right">{{ t('admin.accounts.codexDegradation.consecutive') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.nextCooldown') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.lastServedModel') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.lastFasterModel') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.lastReasons') }}</th>
-                    <th class="whitespace-nowrap px-3 py-2">{{ t('admin.accounts.codexDegradation.lastTransport') }}</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
-                  <tr v-for="entry in codexDegradationData.entries" :key="`${entry.account_id}:${entry.model}`" class="text-gray-700 dark:text-gray-300">
-                    <td class="max-w-40 truncate px-3 py-2" :title="`#${entry.account_id}`">{{ codexDegradationAccountName(entry.account_id) }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 font-medium text-gray-900 dark:text-white">{{ entry.model }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ entry.total }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums" :class="entry.degraded > 0 ? 'font-semibold text-red-600 dark:text-red-400' : ''">{{ entry.degraded }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ entry.model_mismatch }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ entry.safety_buffering }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums" :title="t('admin.accounts.codexDegradation.windowTip')">
-                      {{ entry.window_samples }} · {{ formatCodexDegradationRatio(entry.window_degraded_ratio) }}
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums">{{ entry.consecutive_triggers ?? 0 }}</td>
-                    <td class="whitespace-nowrap px-3 py-2">{{ entry.next_cooldown_at ? formatDateTime(entry.next_cooldown_at) : '—' }}</td>
-                    <td class="max-w-36 truncate px-3 py-2" :title="entry.last_served_model">{{ entry.last_served_model || '—' }}</td>
-                    <td class="max-w-36 truncate px-3 py-2" :title="entry.last_faster_model">{{ entry.last_faster_model || '—' }}</td>
-                    <td class="max-w-48 truncate px-3 py-2" :title="entry.last_reasons?.join(', ')">{{ entry.last_reasons?.length ? entry.last_reasons.join(', ') : '—' }}</td>
-                    <td class="whitespace-nowrap px-3 py-2">{{ entry.last_transport || '—' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      </div>
-    </Teleport>
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -599,7 +527,6 @@ import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActions
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import CodexTicketDashboard from '@/components/admin/account/CodexTicketDashboard.vue'
 import CodexDiagnosticModal from '@/components/admin/account/CodexDiagnosticModal.vue'
-import * as codexDegradationApi from '@/api/admin/codexTickets'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -714,38 +641,6 @@ const showTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
-// 真实流量降智指标面板（只读观测聚合，后端 GET /admin/accounts/codex-degradation/metrics）。
-const showCodexDegradation = ref(false)
-const codexDegradationLoading = ref(false)
-const codexDegradationResetting = ref(false)
-const codexDegradationError = ref('')
-const codexDegradationData = ref<codexDegradationApi.CodexDegradationMetrics | null>(null)
-const codexDegradationAccountName = (accountID: number) =>
-  accounts.value.find(account => account.id === accountID)?.name ?? `#${accountID}`
-const formatCodexDegradationRatio = (ratio: number) => `${(ratio * 100).toFixed(1)}%`
-const loadCodexDegradationMetrics = async () => {
-  codexDegradationLoading.value = true
-  codexDegradationError.value = ''
-  try {
-    codexDegradationData.value = await codexDegradationApi.codexDegradationMetrics()
-  } catch (error) {
-    codexDegradationError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    codexDegradationLoading.value = false
-  }
-}
-const handleResetCodexDegradationMetrics = async () => {
-  codexDegradationResetting.value = true
-  codexDegradationError.value = ''
-  try {
-    await codexDegradationApi.resetCodexDegradationMetrics()
-    await loadCodexDegradationMetrics()
-  } catch (error) {
-    codexDegradationError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    codexDegradationResetting.value = false
-  }
-}
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -1548,8 +1443,7 @@ const isAnyModalOpen = computed(() => {
     showStats.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value ||
-    showCodexDegradation.value
+    showTLSFingerprintProfiles.value
   )
 })
 
@@ -1733,12 +1627,6 @@ const openErrorPassthrough = () => {
 const openTLSFingerprintProfiles = () => {
   closeAccountToolsDropdown()
   showTLSFingerprintProfiles.value = true
-}
-
-const openCodexDegradationMetrics = () => {
-  closeAccountToolsDropdown()
-  showCodexDegradation.value = true
-  void loadCodexDegradationMetrics()
 }
 
 const syncPendingListChanges = async () => {

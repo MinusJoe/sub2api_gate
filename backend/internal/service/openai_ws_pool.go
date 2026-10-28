@@ -68,10 +68,9 @@ func (e *openAIWSDialError) Unwrap() error {
 }
 
 type openAIWSAcquireRequest struct {
-	Account    *Account
-	ModeRouter *openAIWSModeRouterSnapshot
-	WSURL      string
-	Headers    http.Header
+	Account *Account
+	WSURL   string
+	Headers http.Header
 	// HeadersFactory is evaluated inside dialConn. It exists so credentials
 	// whose authorization is per-dial (Agent Identity) are never cached in
 	// lastAcquire or delayed prewarm state.
@@ -826,15 +825,15 @@ func (ap *openAIWSAccountPool) signalChangedLocked() {
 }
 
 type OpenAIWSPoolMetricsSnapshot struct {
-	AcquireTotal            int64 `json:"acquire_total"`
-	AcquireReuseTotal       int64 `json:"acquire_reuse_total"`
-	AcquireCreateTotal      int64 `json:"acquire_create_total"`
-	AcquireQueueWaitTotal   int64 `json:"acquire_queue_wait_total"`
-	AcquireQueueWaitMsTotal int64 `json:"acquire_queue_wait_ms_total"`
-	ConnPickTotal           int64 `json:"conn_pick_total"`
-	ConnPickMsTotal         int64 `json:"conn_pick_ms_total"`
-	ScaleUpTotal            int64 `json:"scale_up_total"`
-	ScaleDownTotal          int64 `json:"scale_down_total"`
+	AcquireTotal            int64
+	AcquireReuseTotal       int64
+	AcquireCreateTotal      int64
+	AcquireQueueWaitTotal   int64
+	AcquireQueueWaitMsTotal int64
+	ConnPickTotal           int64
+	ConnPickMsTotal         int64
+	ScaleUpTotal            int64
+	ScaleDownTotal          int64
 }
 
 type openAIWSPoolMetrics struct {
@@ -1086,7 +1085,7 @@ func (p *openAIWSConnPool) runBackgroundCleanupSweep(now time.Time) {
 		maxConns := p.maxConnsHardCap()
 		ap.mu.Lock()
 		if ap.lastAcquire != nil && ap.lastAcquire.Account != nil {
-			maxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account, ap.lastAcquire.ModeRouter)
+			maxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
 		}
 		evicted := p.cleanupAccountLocked(ap, now, maxConns)
 		ap.lastCleanupAt = now
@@ -1110,11 +1109,6 @@ type openAIWSAcquireQueueWait struct {
 }
 
 func (p *openAIWSConnPool) Acquire(ctx context.Context, req openAIWSAcquireRequest) (*openAIWSConnLease, error) {
-	if req.ModeRouter == nil && ctx != nil {
-		if snapshot, ok := ctx.Value(openAIWSModeRouterContextKey{}).(openAIWSModeRouterSnapshot); ok {
-			req.ModeRouter = &snapshot
-		}
-	}
 	if p != nil {
 		p.metrics.acquireTotal.Add(1)
 	}
@@ -1155,7 +1149,7 @@ retryAcquire:
 	accountID := req.Account.ID
 	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
-	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account, req.ModeRouter)
+	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
 		return nil, errOpenAIWSConnQueueFull
 	}
@@ -1867,7 +1861,7 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 	}
 	effectiveMaxConns := p.maxConnsHardCap()
 	if ap.lastAcquire != nil && ap.lastAcquire.Account != nil {
-		effectiveMaxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account, ap.lastAcquire.ModeRouter)
+		effectiveMaxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
 	}
 	target := p.targetConnCountLocked(ap, effectiveMaxConns)
 	current := len(ap.conns) + ap.creating
@@ -1986,7 +1980,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if len(ap.conns) >= p.effectiveMaxConnsByAccount(req.Account, req.ModeRouter) {
+		if len(ap.conns) >= p.effectiveMaxConnsByAccount(req.Account) {
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
 			conn.close()
@@ -2228,19 +2222,12 @@ func (p *openAIWSConnPool) maxConnsFactorByAccount(account *Account) float64 {
 	return 1.0
 }
 
-func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account, snapshots ...*openAIWSModeRouterSnapshot) int {
-	modeRouterEnabled := p.modeRouterV2Enabled()
-	if len(snapshots) > 0 && snapshots[0] != nil {
-		if !snapshots[0].valid {
-			return 0
-		}
-		modeRouterEnabled = snapshots[0].enabled
-	}
+func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account) int {
 	hardCap := p.maxConnsHardCap()
 	if hardCap <= 0 {
 		return 0
 	}
-	if modeRouterEnabled && account != nil && account.Concurrency <= 0 {
+	if p.modeRouterV2Enabled() && account != nil && account.Concurrency <= 0 {
 		return 0
 	}
 	if account == nil || !p.dynamicMaxConnsEnabled() {
@@ -2334,10 +2321,6 @@ func (p *openAIWSConnPool) dialTimeout() time.Duration {
 
 func cloneOpenAIWSAcquireRequest(req openAIWSAcquireRequest) openAIWSAcquireRequest {
 	copied := req
-	if req.ModeRouter != nil {
-		snapshot := *req.ModeRouter
-		copied.ModeRouter = &snapshot
-	}
 	copied.Headers = cloneHeader(req.Headers)
 	copied.WSURL = stringsTrim(req.WSURL)
 	copied.ProxyURL = stringsTrim(req.ProxyURL)
@@ -2354,8 +2337,7 @@ func cloneOpenAIWSAcquireRequestPtr(req *openAIWSAcquireRequest) *openAIWSAcquir
 }
 
 func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest) bool {
-	sameMode := a.ModeRouter == nil && b.ModeRouter == nil || a.ModeRouter != nil && b.ModeRouter != nil && *a.ModeRouter == *b.ModeRouter
-	return sameMode && stringsTrim(a.WSURL) == stringsTrim(b.WSURL) &&
+	return stringsTrim(a.WSURL) == stringsTrim(b.WSURL) &&
 		stringsTrim(a.ProxyURL) == stringsTrim(b.ProxyURL) &&
 		normalizeOpenAIWSHandshakeCompatibility(a.Account, a.Headers) == normalizeOpenAIWSHandshakeCompatibility(b.Account, b.Headers)
 }

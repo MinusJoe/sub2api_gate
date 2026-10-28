@@ -163,6 +163,7 @@ type SystemSettings struct {
 	TableDefaultPageSize        int
 	TablePageSizeOptions        []int
 	CustomMenuItems             string // JSON array of custom menu items
+	SidebarMenuVisibility       SidebarMenuVisibility
 	CustomEndpoints             string // JSON array of custom endpoints
 
 	DefaultConcurrency           int
@@ -370,6 +371,7 @@ type PublicSettings struct {
 	TableDefaultPageSize        int
 	TablePageSizeOptions        []int
 	CustomMenuItems             string // JSON array of custom menu items
+	SidebarMenuVisibility       SidebarMenuVisibility
 	CustomEndpoints             string // JSON array of custom endpoints
 
 	LinuxDoOAuthEnabled      bool
@@ -611,23 +613,6 @@ func DefaultOpenAIAPIKeyHealthBreakerSettings() *OpenAIAPIKeyHealthBreakerSettin
 		FailureThreshold: 10,
 		CooldownMinutes:  5,
 	}
-}
-
-const (
-	OpenAIFastBridgeScopeAll      = "all"
-	OpenAIFastBridgeScopeFastOnly = "fast_only"
-)
-
-// OpenAIFastBridgeSettings controls the optional HTTP/SSE request bridge
-// to the upstream Responses WebSocket. It is web-controlled and defaults off.
-type OpenAIFastBridgeSettings struct {
-	Enabled bool   `json:"enabled"`
-	Scope   string `json:"scope"`
-}
-
-// DefaultOpenAIFastBridgeSettings defaults to all eligible requests, but does not enable the bridge.
-func DefaultOpenAIFastBridgeSettings() *OpenAIFastBridgeSettings {
-	return &OpenAIFastBridgeSettings{Enabled: false, Scope: OpenAIFastBridgeScopeAll}
 }
 
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）
