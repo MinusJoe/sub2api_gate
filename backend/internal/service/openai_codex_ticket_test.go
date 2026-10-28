@@ -13,10 +13,11 @@ import (
 )
 
 func fakeCodexTicketState(length int) string {
-	if length < len(openAICodexTicketStatePrefix) {
+	const statePrefix = "gAAAAA"
+	if length < len(statePrefix) {
 		return strings.Repeat("A", length)
 	}
-	return openAICodexTicketStatePrefix + strings.Repeat("B", length-len(openAICodexTicketStatePrefix))
+	return statePrefix + strings.Repeat("B", length-len(statePrefix))
 }
 
 func ticketTestAccount(id int64) *Account {
