@@ -989,7 +989,6 @@ export interface Proxy {
   account_count?: number // Number of accounts using this proxy
   latency_ms?: number
   latency_status?: 'success' | 'failed'
-  latency_checked_at?: number
   latency_message?: string
   ip_address?: string
   country?: string

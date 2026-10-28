@@ -4,10 +4,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/utils/__tests__/sidebarMenus.spec.ts \
 	src/components/account/__tests__/KimiDeviceAuthorization.spec.ts \
-	src/composables/__tests__/useProxyAutoTest.spec.ts \
-	src/components/admin/proxy/__tests__/ProxyAutoTestControl.spec.ts \
-	src/views/admin/__tests__/ProxiesView.autoTest.spec.ts \
 	src/views/admin/__tests__/ProxiesView.filters.spec.ts \
+	src/views/admin/__tests__/ProxiesView.testing.spec.ts \
 	src/api/__tests__/admin.proxies.abort.spec.ts \
 	src/components/account/__tests__/CNProviderQuotaCell.spec.ts \
 	src/views/admin/__tests__/GroupsView.openaiServiceTier.spec.ts \
@@ -17,7 +15,6 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/admin/usage/__tests__/UsageTable.spec.ts \
 	src/composables/__tests__/useColumnOrder.spec.ts \
 	src/components/common/__tests__/ColumnOrderSettings.spec.ts \
-	src/components/admin/usage/__tests__/UsageProxyLatencyStrip.spec.ts \
 	src/views/admin/__tests__/UsageView.spec.ts \
 	src/views/user/__tests__/UsageView.spec.ts \
 	src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts \
