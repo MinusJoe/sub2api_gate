@@ -141,6 +141,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		SessionWindowEnd:        &sessionWindowEnd,
 		SessionWindowStatus:     "active",
 	}
+	source.Extra[openaiQuotaCreditsKey] = map[string]any{"credits": map[string]any{"has_credits": true}, "fetched_at": time.Now().Unix()}
 	source.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	source.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
 	source.Extra[UpstreamBillingProbeExtraKey] = map[string]any{"status": "ok"}
@@ -165,6 +166,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		"codex_cli_only": true,
 	}, duplicate.Extra)
 	require.NotContains(t, duplicate.Extra, UpstreamBillingRateSyncEnabledExtraKey)
+	require.NotContains(t, duplicate.Extra, openaiQuotaCreditsKey)
 	require.NotNil(t, duplicate.ExpiresAt)
 	require.True(t, source.ExpiresAt.Equal(*duplicate.ExpiresAt))
 	require.Equal(t, source.Notes, duplicate.Notes)

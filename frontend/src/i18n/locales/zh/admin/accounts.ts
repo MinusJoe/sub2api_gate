@@ -1277,6 +1277,8 @@ export default {
 	  autoPause5hDisabled: '禁用 5h 自动暂停',
 	  autoPause7dDisabled: '禁用 7d 自动暂停',
 	  autoPauseDisabledHint: '开启后该账号永不进入自动暂停（即使全局默认阈值已配置）。',
+	  creditOverageEnabled: '允许用余额超量',
+	  creditOverageHint: '窗口用满且账号仍有可用余额（credits）时继续调度，由上游按余额计费；余额不足时上游会返回 429，网关照常冷却并切号。余额快照超过 2 小时未刷新时本项不生效。免费的重置卡仍优先，只是不再挡住请求。',
 	  claudeResetCredits: {
 	    count: '次数',
 	    countTooltipLoad: '点击查询 Claude 剩余重置次数（只读，不会消耗）',

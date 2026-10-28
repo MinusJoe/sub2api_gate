@@ -97,14 +97,15 @@ type OpenAIQuotaAutoResetService struct {
 	settings    *SettingService
 	leaderLock  LeaderLockCache
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	queue   chan int64
-	pending sync.Map
-	owner   string
-	start   sync.Once
-	stop    sync.Once
-	wg      sync.WaitGroup
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	queue                chan int64
+	pending              sync.Map
+	creditRefreshRetryAt sync.Map // account ID -> next retry after a failed balance refresh
+	owner                string
+	start                sync.Once
+	stop                 sync.Once
+	wg                   sync.WaitGroup
 }
 
 func NewOpenAIQuotaAutoResetService(
@@ -234,7 +235,7 @@ func (s *OpenAIQuotaAutoResetService) scanEnabledAccounts(ctx context.Context) {
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Schedulable && ResolveOpenAIAutoResetCreditConfig(account).Enabled {
+			if account.Schedulable && (ResolveOpenAIAutoResetCreditConfig(account).Enabled || openAICreditOverageRefreshEnabled(account)) {
 				s.Notify(account.ID)
 			}
 		}
@@ -288,7 +289,13 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		return nil
 	}
 	config := ResolveOpenAIAutoResetCreditConfig(account)
-	if !config.Enabled || !account.IsActive() || !account.Schedulable {
+	if !account.IsActive() || !account.Schedulable {
+		return nil
+	}
+	if !config.Enabled {
+		if openAICreditOverageRefreshEnabled(account) {
+			return s.refreshOverageCredits(ctx, account)
+		}
 		return nil
 	}
 
@@ -298,6 +305,7 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 	// 达到用卡阈值本应立即查询以便用卡；但 10 分钟内已确认无卡时，重查不会改变结论，
 	// 只会让调度热路径的通知把同一账号的上游额度接口打到十几秒一次。
 	needsQuery := openAIAutoResetSnapshotStale(account.Extra, now) ||
+		(openAICreditOverageRefreshEnabled(account) && openAICreditSnapshotNeedsRefresh(account.Extra, now)) ||
 		(assessment.resetReached && !openAIAutoResetNoCreditConfirmed(state, now))
 	if assessment.pauseReached && !assessment.resetReached {
 		needsQuery = needsQuery || state == nil || state.Status == OpenAIAutoResetStatusChecking || state.Status == OpenAIAutoResetStatusFailed || openAIAutoResetStateStale(state, now)
@@ -596,10 +604,12 @@ func buildOpenAIAutoResetUsageUpdates(usage *OpenAIQuotaUsage, now time.Time) ma
 
 func (s *OpenAIQuotaAutoResetService) persistFreshUsage(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage, now time.Time) error {
 	updates := buildOpenAIAutoResetUsageUpdates(usage, now)
-	if len(updates) > 0 {
-		if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
-			return err
-		}
+	if updates == nil {
+		updates = make(map[string]any)
+	}
+	updates[openaiQuotaCreditsKey] = openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt}
+	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
+		return err
 	}
 	return s.quota.CacheResetCreditsSnapshot(ctx, accountID, usage.RateLimitResetCredits)
 }

@@ -1902,6 +1902,115 @@ describe('EditAccountModal', () => {
   })
 })
 
+describe('EditAccountModal OpenAI 余额超量', () => {
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it.each([undefined, false, true])('回显余额超量 %s，提供开关名称与切换后的状态', async (enabled) => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = enabled === undefined ? {} : { openai_credit_overage: enabled }
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="credit-overage-enabled"]')
+
+    expect(toggle.attributes('role')).toBe('switch')
+    expect(toggle.attributes('aria-label')).toBe('admin.accounts.creditOverageEnabled')
+    expect(toggle.attributes('aria-checked')).toBe(String(enabled === true))
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe(String(enabled !== true))
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe(String(enabled === true))
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('开启写入 true，且不顺带开启自动用卡或改变其阈值', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = {
+      auto_reset_credit_enabled: false,
+      auto_reset_credit_5h_threshold: 0.755,
+      auto_reset_credit_7d_threshold: 0.92
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="credit-overage-enabled"]').trigger('click')
+    expect(wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      openai_credit_overage: true,
+      auto_reset_credit_enabled: false,
+      auto_reset_credit_5h_threshold: 0.755,
+      auto_reset_credit_7d_threshold: 0.92
+    })
+    expect(account.extra).not.toHaveProperty('openai_credit_overage')
+    wrapper.unmount()
+  })
+
+  it('关闭删除已保存的余额超量字段，不影响已开启的自动用卡', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = {
+      openai_credit_overage: true,
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0.8,
+      auto_reset_credit_7d_threshold: 0.9
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="credit-overage-enabled"]').trigger('click')
+    expect(wrapper.get('[data-testid="credit-overage-enabled"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('openai_credit_overage')
+    expect(extra).toMatchObject({
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0.8,
+      auto_reset_credit_7d_threshold: 0.9
+    })
+    expect(account.extra.openai_credit_overage).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('余额超量为 %s 时提交不回写余额快照或自动用卡运行态', async (enabled) => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = {
+      openai_credit_overage: enabled,
+      codex_credits_snapshot: {
+        credits: { has_credits: true, balance: '12.50', unlimited: false },
+        fetched_at: new Date().toISOString()
+      },
+      codex_auto_reset_credit_state: { status: 'success', trigger_window: '5h' },
+      retained_metadata: 'keep-me'
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('codex_credits_snapshot')
+    expect(extra).not.toHaveProperty('codex_auto_reset_credit_state')
+    expect(extra).toMatchObject({ auto_reset_credit_enabled: false, retained_metadata: 'keep-me' })
+    if (enabled) {
+      expect(extra.openai_credit_overage).toBe(true)
+    } else {
+      expect(extra).not.toHaveProperty('openai_credit_overage')
+    }
+    expect(account.extra).toHaveProperty('codex_credits_snapshot')
+    expect(account.extra).toHaveProperty('codex_auto_reset_credit_state')
+    wrapper.unmount()
+  })
+})
+
 describe('EditAccountModal OpenAI 自动使用重置卡', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
