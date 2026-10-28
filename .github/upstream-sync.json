@@ -20,7 +20,7 @@
   ],
   "conflict_resolution": {
     "README.md": "Retain fork documentation",
-    "backend/cmd/server/VERSION": "Retain 1.1.11 until the separately requested 1.1.15 release resumes",
+    "backend/cmd/server/VERSION": "Fork release version 1.1.12; upstream source version remains 0.2.19",
     "backend/ent": "Regenerate from merged schema with image_count_billing, forced_service_tier and free_openai_ultrafast",
     "backend/internal/repository/account_repo.go": "Preserve Grok model metadata and fork Codex ticket/BPS credential state together",
     "backend/internal/service/admin_account.go": "Defer fork timezone discovery until account transaction commit",
@@ -53,5 +53,6 @@
     "backend/cmd/server/VERSION": "Retain Sub4API 1.1.11",
     "backend/internal/repository/scheduler_cache.go": "Retain Sub4API ticket projection validation before publishing 0.2.18 memoized snapshots",
     "backend/internal/service/codex_ticket_hypothesis.go": "Use the 0.2.18 default CLI originator when validating the pinned-version request"
-  }
+  },
+  "release_version": "1.1.12"
 }

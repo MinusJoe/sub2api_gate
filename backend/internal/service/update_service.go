@@ -30,7 +30,7 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "MACOS-DO/sub4api"
+	githubRepo     = "talent668/sub2api_gate"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
