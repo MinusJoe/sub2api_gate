@@ -3066,14 +3066,25 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 		return
 	}
 
-	// Handle Claude/Anthropic accounts
-	// For OAuth and Setup-Token accounts: return default models
-	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
+	// Kimi OAuth accounts must never inherit Claude's catalog.
+	if account.IsKimiOAuth() {
+		ids := []string{"kimi-for-coding"}
+		if mapping := account.GetModelMapping(); len(mapping) > 0 {
+			ids = make([]string, 0, len(mapping))
+			for id := range mapping {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		models := make([]openai.Model, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, openai.Model{ID: id, Object: "model", OwnedBy: service.PlatformKimi, Type: "model", DisplayName: id})
+		}
+		response.Success(c, models)
 		return
 	}
 
-	// For API Key accounts: return models based on model_mapping
+	// Claude OAuth, Setup-Token and API Key accounts share model_mapping.
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models

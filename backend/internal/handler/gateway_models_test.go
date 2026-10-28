@@ -23,6 +23,59 @@ type gatewayModelsAccountRepoStub struct {
 	byGroup map[int64][]service.Account
 }
 
+func TestGatewayOAuthModelsFollowSavedMappings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, platform := range []string{service.PlatformKimi, service.PlatformAnthropic} {
+		for _, mapped := range []bool{false, true} {
+			for _, allowlisted := range []bool{false, true} {
+				name := platform
+				if mapped {
+					name += "/mapped"
+				}
+				if allowlisted {
+					name += "/allowlisted"
+				}
+				t.Run(name, func(t *testing.T) {
+					account := service.Account{ID: 1, Platform: platform, Type: service.AccountTypeOAuth}
+					want := defaultModelIDsForPlatform(platform)
+					if mapped {
+						account.Credentials = map[string]any{"model_mapping": map[string]any{"client-alias": "upstream-model"}}
+						want = []string{"client-alias"}
+					}
+					otherPlatform := service.PlatformKimi
+					if platform == service.PlatformKimi {
+						otherPlatform = service.PlatformAnthropic
+					}
+					otherAccount := service.Account{ID: 2, Platform: otherPlatform, Type: service.AccountTypeOAuth,
+						Credentials: map[string]any{"model_mapping": map[string]any{"other-provider-model": "other-upstream"}}}
+					repo := &gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{17: {account, otherAccount}}}
+					h := newGatewayModelsHandlerForTest(repo)
+					group := &service.Group{ID: 17, Platform: platform}
+					if allowlisted {
+						group.ModelAllowlist = service.GroupModelAllowlist{Enabled: true, Models: want}
+					}
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+					c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: group})
+					h.Models(c)
+					require.Equal(t, http.StatusOK, rec.Code)
+					var response gatewayModelsResponseForTest
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+					ids := make([]string, 0, len(response.Data))
+					for _, model := range response.Data {
+						ids = append(ids, model.ID)
+					}
+					require.ElementsMatch(t, want, ids)
+					if platform == service.PlatformKimi {
+						require.NotContains(t, rec.Body.String(), "claude-")
+					}
+				})
+			}
+		}
+	}
+}
+
 type gatewayModelsRouteRepoStub struct {
 	service.CompositeModelRouteRepository
 	routes []service.CompositeModelRoute

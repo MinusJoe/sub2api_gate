@@ -527,8 +527,8 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		testModelID = claude.DefaultTestModel
 	}
 
-	// API Key 账号测试连接时也需要应用通配符模型映射。
-	if account.Type == "apikey" {
+	// Connection tests use the same explicit mappings as real requests.
+	if account.Type == AccountTypeAPIKey || account.IsAnthropicOAuthOrSetupToken() {
 		testModelID = account.GetMappedModel(testModelID)
 	}
 

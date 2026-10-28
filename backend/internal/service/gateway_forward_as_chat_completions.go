@@ -51,7 +51,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// Resolve the final upstream model before model-specific conversion.
 	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+	oauthMappingMatched := false
+	if account.IsAnthropicOAuthOrSetupToken() {
+		mappedModel, oauthMappingMatched = account.ResolveMappedModel(originalModel)
+	} else if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
 	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
@@ -59,7 +62,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if normalized != originalModel {
 			mappedModel = normalized
 		}
-	} else if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+	} else if !oauthMappingMatched && mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		normalized := claude.NormalizeModelID(originalModel)
 		if normalized != originalModel {
 			mappedModel = normalized
@@ -105,6 +108,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
+	}
+	if oauthMappingMatched {
+		anthropicBody = s.replaceModelInBody(anthropicBody, mappedModel)
 	}
 
 	// 7. Enforce cache_control block limit

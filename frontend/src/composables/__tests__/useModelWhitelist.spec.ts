@@ -8,6 +8,13 @@ import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatfo
 import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
+  it('keeps Kimi and Claude model options and mapping presets separate', () => {
+    expect(getModelsByPlatform('kimi')).toContain('kimi-for-coding')
+    expect(getModelsByPlatform('kimi').some(model => model.startsWith('claude-'))).toBe(false)
+    expect(getModelsByPlatform('anthropic').some(model => model.startsWith('kimi-'))).toBe(false)
+    expect(getPresetMappingsByPlatform('kimi')).toEqual([])
+    expect(getPresetMappingsByPlatform('anthropic').length).toBeGreaterThan(0)
+  })
   it('平台清单中没有内置模型列表的多协议供应商不预填白名单', () => {
     setPlatformCatalog({
       ...BUILTIN_PLATFORM_CATALOG,

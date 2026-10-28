@@ -676,6 +676,8 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
+	case account.IsKimiOAuth():
+		return DefaultKimiCodingBaseURL
 	case account.IsOpenAI() || account.IsMultiProtocolAPIKey():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
@@ -814,6 +816,16 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 	if account.IsGemini() && account.IsVertexServiceAccount() {
 		models, err := s.fetchVertexGeminiUpstreamModels(ctx, account)
 		return models, nil, nil, err
+	}
+	if account.IsKimiOAuth() {
+		if s.openaiGatewayService == nil || s.openaiGatewayService.kimiOAuthService == nil {
+			return nil, nil, nil, newUpstreamModelSyncConfigError("Kimi OAuth is not configured", nil)
+		}
+		fresh, err := s.openaiGatewayService.kimiOAuthService.GetAccount(ctx, account, false)
+		if err != nil {
+			return nil, nil, nil, newUpstreamModelSyncUpstreamError("Failed to refresh Kimi OAuth authorization", err)
+		}
+		account = fresh // Includes the current token, device identity and validated proxy.
 	}
 
 	req, err := s.buildUpstreamModelsRequest(ctx, account)
@@ -990,6 +1002,16 @@ func listVertexGeminiPublisherModels(location string, fetchPage func(page int, l
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.IsKimiOAuth():
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildV1ModelsURL(DefaultKimiCodingBaseURL), nil)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Kimi model list URL", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		if err := applyKimiOAuthRequestHeaders(req, account); err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Kimi OAuth request", err)
+		}
+		return req, nil
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
@@ -1105,7 +1127,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 
 	if account.IsOAuth() {
 		accessToken := strings.TrimSpace(account.GetCredential("access_token"))
-		if accessToken == "" && s.claudeTokenProvider != nil {
+		if s.claudeTokenProvider != nil {
 			token, tokenErr := s.claudeTokenProvider.GetAccessToken(ctx, account)
 			if tokenErr != nil {
 				return nil, newUpstreamModelSyncUpstreamError("Failed to get Anthropic access token", tokenErr)
