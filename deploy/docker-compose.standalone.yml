@@ -12,7 +12,7 @@
 
 services:
   sub2api:
-    image: ${SUB4API_IMAGE:-ghcr.io/runemesh/sub2api_gate:latest}
+    image: ${SUB4API_IMAGE:-ghcr.io/minusjoe/sub2api_gate:latest}
     container_name: sub2api
     restart: unless-stopped
     security_opt:

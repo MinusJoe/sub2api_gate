@@ -17,4 +17,4 @@
 - 现有账号、菜单显隐、计费和代理配置继续保留；未配置的操作日志菜单默认隐藏。
 - 本次为 2026-10-29 的同版本重建，版本号仍为 1.1.12；已有安装需要重新拉取镜像并重建容器，或重新下载安装包，才能使用本次修复。
 - OAuth 账号完成授权并保存后，可在“编辑账号 → 模型限制 → 模型白名单”同步上游模型，再保存配置。项目 API Key 的模型列表按绑定分组和模型白名单返回。
-- 仓库已更名为 `RuneMesh/sub2api_gate`，发布镜像为 `ghcr.io/runemesh/sub2api_gate:1.1.12`；安装脚本和更新源已同步调整。提供 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 安装包及 SHA-256 校验文件。
+- 仓库已更名为 `MinusJoe/sub2api_gate`，发布镜像为 `ghcr.io/minusjoe/sub2api_gate:1.1.12`；安装脚本和更新源已同步调整。提供 Linux amd64/arm64、macOS amd64/arm64 和 Windows amd64 安装包及 SHA-256 校验文件。
