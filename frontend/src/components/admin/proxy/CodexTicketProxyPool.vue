@@ -1,5 +1,5 @@
 <template>
-  <section class="w-full rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 dark:border-indigo-900 dark:bg-indigo-950/30 sm:p-5">
+  <section v-if="enabled" class="w-full rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 dark:border-indigo-900 dark:bg-indigo-950/30 sm:p-5" data-testid="codex-ticket-proxy-pool">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h3 class="font-semibold text-slate-900 dark:text-white">{{ zh ? 'Codex 打票代理池' : 'Codex ticket proxy pool' }}</h3>
@@ -64,6 +64,7 @@ import type { Proxy } from '@/types'
 type PoolMode = 'all' | 'custom'
 interface PoolProxyRef { id: number; name?: string; reason?: 'deleted' | 'disabled' | 'expired' }
 interface PoolView {
+  enabled: boolean
   mode: PoolMode
   proxy_ids: number[] | null
   source: 'pool' | 'account'
@@ -77,14 +78,17 @@ const mode = ref<PoolMode>('all')
 const selected = ref<number[]>([])
 const proxies = ref<Proxy[]>([])
 const view = ref<PoolView | null>(null)
+const enabled = ref(false)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
 const justSaved = ref(false)
+let loadVersion = 0
+let disposed = false
 
 const normalizedSelection = (ids: number[]) => [...new Set(ids)].sort((a, b) => a - b)
 const dirty = computed(() => {
-  if (loading.value || !view.value) return false
+  if (!enabled.value || loading.value || !view.value) return false
   if (mode.value !== view.value.mode) return true
   if (mode.value === 'all') return false
   return normalizedSelection(selected.value).join(',') !== normalizedSelection(view.value.proxy_ids ?? []).join(',')
@@ -111,21 +115,31 @@ function removeSelection(id: number) {
 }
 
 function applyView(next: PoolView) {
+  enabled.value = next.enabled === true
   view.value = next
   mode.value = next.mode
   selected.value = [...(next.proxy_ids ?? [])]
 }
 
 async function reload() {
+  const version = ++loadVersion
+  const isCurrent = () => !disposed && version === loadVersion
   // Read before loading flips: dirty is always false while loading.
   const keepEdits = dirty.value
   loading.value = true
   error.value = ''
   try {
-    const [pool, available] = await Promise.all([
-      apiClient.get<PoolView>('/admin/proxies/codex-ticket-pool'),
-      adminAPI.proxies.getAll()
-    ])
+    const pool = await apiClient.get<PoolView>('/admin/proxies/codex-ticket-pool')
+    if (!isCurrent()) return
+    enabled.value = pool.data.enabled === true
+    if (!enabled.value) {
+      applyView(pool.data)
+      proxies.value = []
+      justSaved.value = false
+      return
+    }
+    const available = await adminAPI.proxies.getAll()
+    if (!isCurrent()) return
     proxies.value = available
     // Keep unsaved edits when only the proxy list is being refreshed.
     if (keepEdits) {
@@ -134,13 +148,14 @@ async function reload() {
       applyView(pool.data)
     }
   } catch (cause) {
-    error.value = extractApiErrorMessage(cause, 'Unable to load proxy pool')
+    if (isCurrent()) error.value = extractApiErrorMessage(cause, 'Unable to load proxy pool')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 async function save() {
+  const version = loadVersion
   saving.value = true
   error.value = ''
   justSaved.value = false
@@ -148,10 +163,15 @@ async function save() {
     const visible = new Set(proxies.value.map(proxy => proxy.id))
     const proxyIDs = mode.value === 'all' ? [] : selected.value.filter(id => visible.has(id))
     const { data } = await apiClient.put<PoolView>('/admin/proxies/codex-ticket-pool', { mode: mode.value, proxy_ids: proxyIDs })
+    if (disposed) return
+    if (version !== loadVersion) {
+      await reload()
+      return
+    }
     applyView(data)
     justSaved.value = true
   } catch (cause) {
-    error.value = extractApiErrorMessage(cause, 'Unable to save proxy pool')
+    if (!disposed) error.value = extractApiErrorMessage(cause, 'Unable to save proxy pool')
   } finally {
     saving.value = false
   }
@@ -168,7 +188,11 @@ onMounted(() => {
   window.addEventListener('beforeunload', beforeUnload)
   void reload()
 })
-onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => {
+  disposed = true
+  loadVersion++
+  window.removeEventListener('beforeunload', beforeUnload)
+})
 
 defineExpose({ reload, dirty })
 </script>

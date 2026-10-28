@@ -550,6 +550,8 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
+  // Kimi is an independent provider; Anthropic presets must not appear here.
+  if (platform === 'kimi') return []
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings

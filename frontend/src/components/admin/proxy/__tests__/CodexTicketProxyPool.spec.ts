@@ -15,7 +15,7 @@ const proxy = (id: number, name: string, extra: Record<string, unknown> = {}) =>
 })
 const proxies = [proxy(1, 'A'), proxy(2, 'B'), proxy(3, 'C')]
 const view = (overrides: Record<string, unknown> = {}) => ({
-  mode: 'custom', proxy_ids: [3], source: 'pool', effective: [{ id: 3, name: 'C' }], unavailable: [], ...overrides
+  enabled: true, mode: 'custom', proxy_ids: [3], source: 'pool', effective: [{ id: 3, name: 'C' }], unavailable: [], ...overrides
 })
 
 function deferred<T>() {
@@ -30,6 +30,16 @@ describe('CodexTicketProxyPool', () => {
     get.mockResolvedValue({ data: view() })
   })
   afterEach(() => vi.clearAllMocks())
+
+  it.each([false, undefined, null, 'true'])('hides the panel unless the saved switch is explicitly true (%s)', async enabled => {
+    get.mockResolvedValue({ data: view({ enabled }) })
+    const wrapper = mount(CodexTicketProxyPool)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-pool"]').exists()).toBe(false)
+    expect(getAll).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 
   it('shows which proxies tickets actually rotate through', async () => {
     const wrapper = mount(CodexTicketProxyPool)
@@ -57,13 +67,18 @@ describe('CodexTicketProxyPool', () => {
     wrapper.unmount()
   })
 
-  it('keeps inputs disabled until the saved pool has loaded', async () => {
+  it('stays hidden until enabled is confirmed and keeps inputs disabled until proxies load', async () => {
     const pending = deferred<{ data: ReturnType<typeof view> }>()
+    const available = deferred<typeof proxies>()
     get.mockReturnValue(pending.promise)
+    getAll.mockReturnValue(available.promise)
     const wrapper = mount(CodexTicketProxyPool)
     await flushPromises()
-    expect((wrapper.get('[data-testid="pool-mode-custom"]').element as HTMLInputElement).disabled).toBe(true)
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-pool"]').exists()).toBe(false)
     pending.resolve({ data: view() })
+    await flushPromises()
+    expect((wrapper.get('[data-testid="pool-mode-custom"]').element as HTMLInputElement).disabled).toBe(true)
+    available.resolve(proxies)
     await flushPromises()
     expect((wrapper.get('[data-testid="pool-mode-custom"]').element as HTMLInputElement).disabled).toBe(false)
     wrapper.unmount()
@@ -101,6 +116,32 @@ describe('CodexTicketProxyPool', () => {
     expect((wrapper.get('[data-testid="pool-mode-all"]').element as HTMLInputElement).checked).toBe(true)
     await wrapper.get('[data-testid="pool-mode-custom"]').setValue(true)
     expect(wrapper.find('[data-testid="pool-proxy-1"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('hides after disabling and restores the saved selection after reenabling', async () => {
+    const wrapper = mount(CodexTicketProxyPool)
+    await flushPromises()
+    get.mockResolvedValue({ data: view({ enabled: false }) })
+    await (wrapper.vm as unknown as { reload: () => Promise<void> }).reload()
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-pool"]').exists()).toBe(false)
+    get.mockResolvedValue({ data: view({ enabled: true }) })
+    await (wrapper.vm as unknown as { reload: () => Promise<void> }).reload()
+    expect((wrapper.get('[data-testid="pool-proxy-3"]').element as HTMLInputElement).checked).toBe(true)
+    expect(put).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not let an older enabled response reveal the panel after a newer disabled response', async () => {
+    const old = deferred<{ data: ReturnType<typeof view> }>()
+    get.mockReturnValueOnce(old.promise)
+    const wrapper = mount(CodexTicketProxyPool)
+    get.mockResolvedValue({ data: view({ enabled: false }) })
+    await (wrapper.vm as unknown as { reload: () => Promise<void> }).reload()
+    old.resolve({ data: view({ enabled: true }) })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-pool"]').exists()).toBe(false)
+    expect(getAll).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

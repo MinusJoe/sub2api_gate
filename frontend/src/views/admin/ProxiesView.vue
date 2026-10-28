@@ -49,7 +49,7 @@
             </button>
             <button
               @click="handleBatchTest"
-              :disabled="batchTesting || autoTestRunning || loading"
+              :disabled="batchTesting || loading"
               class="btn btn-secondary"
               :title="t('admin.proxies.testConnection')"
             >
@@ -86,17 +86,6 @@
             </button>
           </div>
         </div>
-        <ProxyAutoTestControl
-          :enabled="autoTestEnabled"
-          :interval-seconds="autoTestInterval"
-          :countdown="autoTestCountdown"
-          :running="autoTestRunning"
-          :paused="autoTestPaused"
-          :failed="autoTestFailed"
-          :selected-count="selectedCount"
-          @update:enabled="handleAutoTestEnabled"
-          @update:interval="setAutoTestInterval"
-        />
       </template>
 
       <template #table>
@@ -976,7 +965,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -993,15 +982,12 @@ import ImportDataModal from '@/components/admin/proxy/ImportDataModal.vue'
 import Select from '@/components/common/Select.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import CodexTicketProxyPool from '@/components/admin/proxy/CodexTicketProxyPool.vue'
-import ProxyAutoTestControl from '@/components/admin/proxy/ProxyAutoTestControl.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useSwipeSelect } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { useProxyAutoTest } from '@/composables/useProxyAutoTest'
-import { saveProxyAutoTestTargets } from '@/utils/proxyAutoTestTargets'
 import { formatDateTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 
@@ -1877,7 +1863,7 @@ const runBatchProxyTests = async (ids: number[], signal: AbortSignal = proxyTest
 }
 
 const handleBatchTest = async () => {
-  if (batchTesting.value || autoTestRunning.value) return
+  if (batchTesting.value) return
 
   batchTesting.value = true
   try {
@@ -1906,57 +1892,6 @@ const handleBatchTest = async () => {
     batchTesting.value = false
   }
 }
-
-const {
-  enabled: autoTestEnabled,
-  intervalSeconds: autoTestInterval,
-  countdown: autoTestCountdown,
-  running: autoTestRunning,
-  paused: autoTestPaused,
-  failed: autoTestFailed,
-  setEnabled: setAutoTestEnabled,
-  setIntervalSeconds: setAutoTestInterval,
-  restart: restartAutoTest
-} = useProxyAutoTest({
-  shouldPause: () => loading.value || batchTesting.value || batchQualityChecking.value ||
-    showCreateModal.value || showEditModal.value || showImportData.value ||
-    showDeleteDialog.value || showBatchDeleteDialog.value,
-  run: async (signal) => {
-    const ids = selectedCount.value > 0
-      ? Array.from(selectedProxyIds.value)
-      : (await fetchAllProxiesForBatch(signal)).map(proxy => proxy.id)
-    if (signal.aborted) return
-    // Results update the current rows directly: no table flicker, pool reload or per-tick toast.
-    saveProxyAutoTestTargets(ids)
-    await runBatchProxyTests(ids, signal)
-  }
-})
-
-let autoTestTargetsController: AbortController | undefined
-const rememberAutoTestTargets = async () => {
-  autoTestTargetsController?.abort()
-  if (!autoTestEnabled.value) return
-  const controller = new AbortController()
-  autoTestTargetsController = controller
-  saveProxyAutoTestTargets([])
-  try {
-    const ids = selectedCount.value > 0
-      ? Array.from(selectedProxyIds.value)
-      : (await fetchAllProxiesForBatch(controller.signal)).map(proxy => proxy.id)
-    if (!controller.signal.aborted && autoTestEnabled.value) saveProxyAutoTestTargets(ids)
-  } catch (error) {
-    if (!controller.signal.aborted && !isAbortError(error)) appStore.showError(t('admin.proxies.failedToLoad'))
-  }
-}
-const handleAutoTestEnabled = (enabled: boolean) => {
-  setAutoTestEnabled(enabled)
-  autoTestTargetsController?.abort()
-  if (enabled) void rememberAutoTestTargets()
-}
-watch([() => filters.protocol, () => filters.status, searchQuery, selectedProxyIds], () => {
-  restartAutoTest()
-  void rememberAutoTestTargets()
-})
 
 const handleBatchQualityCheck = async () => {
   if (batchQualityChecking.value) return
@@ -2167,7 +2102,6 @@ onUnmounted(() => {
   clearTimeout(searchTimeout)
   abortController?.abort()
   proxyTestController.abort()
-  autoTestTargetsController?.abort()
   document.removeEventListener('click', closeCopyMenu)
 })
 </script>

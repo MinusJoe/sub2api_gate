@@ -114,6 +114,7 @@ type CodexTicketPoolProxyRef struct {
 // Effective 是打票会轮换的代理；Unavailable 是已勾选但当前不会被使用的代理。
 type CodexTicketPoolView struct {
 	CodexTicketPool
+	Enabled     bool                      `json:"enabled"`
 	Source      string                    `json:"source"`
 	Effective   []CodexTicketPoolProxyRef `json:"effective"`
 	Unavailable []CodexTicketPoolProxyRef `json:"unavailable"`
@@ -124,7 +125,11 @@ func (s *SettingService) DescribeCodexTicketPool(ctx context.Context) (CodexTick
 	if err != nil {
 		return CodexTicketPoolView{}, err
 	}
-	view := CodexTicketPoolView{CodexTicketPool: pool, Source: s.GetCodexTicketProxySource(ctx),
+	fallbackEnabled := false
+	if s.cfg != nil {
+		fallbackEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
+	}
+	view := CodexTicketPoolView{CodexTicketPool: pool, Enabled: s.GetOpenAICodexTicketEnabled(ctx, fallbackEnabled), Source: s.GetCodexTicketProxySource(ctx),
 		Effective: []CodexTicketPoolProxyRef{}, Unavailable: []CodexTicketPoolProxyRef{}}
 	available, err := s.AvailableCodexTicketProxies(ctx)
 	if err != nil {

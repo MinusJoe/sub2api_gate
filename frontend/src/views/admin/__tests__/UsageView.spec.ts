@@ -5,7 +5,6 @@ import { defineComponent, ref } from 'vue'
 import UsageView from '../UsageView.vue'
 import ColumnOrderSettings from '@/components/common/ColumnOrderSettings.vue'
 
-vi.mock('@/components/admin/usage/UsageProxyLatencyStrip.vue', () => ({ default: { template: '<div />' } }))
 
 const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {

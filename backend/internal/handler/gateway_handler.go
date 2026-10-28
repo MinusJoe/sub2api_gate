@@ -1222,6 +1222,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		writeModelsList(c, platform, []string{typesafe.JevLatestModel})
 		return
 	}
+	if platform == service.PlatformKimi {
+		writeModelsList(c, platform, defaultModelIDsForPlatform(platform))
+		return
+	}
 
 	writeModelsListResponse(c, claude.DefaultModels)
 }
@@ -1359,6 +1363,14 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
+	if platform == service.PlatformKimi {
+		models := make([]openai.Model, 0, len(modelIDs))
+		for _, id := range modelIDs {
+			models = append(models, openai.Model{ID: id, Object: "model", OwnedBy: platform, Type: "model", DisplayName: id})
+		}
+		writeModelsListResponse(c, models)
+		return
+	}
 	if platform == service.PlatformOpenAI || platform == service.PlatformOpenAIBPS {
 		writeOpenAIModelsList(c, modelIDs)
 		return
@@ -1519,6 +1531,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return ids
 	case service.PlatformAnthropic:
 		return claude.DefaultModelIDs()
+	case service.PlatformKimi:
+		return []string{"kimi-for-coding"}
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
 	case service.PlatformOpenCodeGo:

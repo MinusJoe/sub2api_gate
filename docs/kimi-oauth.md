@@ -9,6 +9,8 @@ Kimi 账号支持 API Key 和 Kimi Code OAuth 两种接入方式。OAuth 使用 
 
 账号支持现有 Chat Completions、Responses 和 Anthropic Messages 转发，以及 Coding 套餐额度查询。实际可用模型和额度以 Kimi 账号为准。
 
+授权并保存账号后，在账号编辑页的“模型限制 → 模型白名单”中点击“同步上游最新模型”，再保存即可将结果应用到该账号。也可以切换到“模型映射”，设置客户端模型名到上游模型 ID 的映射。项目 API Key 的 `/v1/models` 按其绑定分组和模型白名单返回已保存的客户端模型名；没有配置映射的 Kimi 账号使用 `kimi-for-coding` 作为默认列表。同步失败不会覆盖原有模型配置。
+
 ## 凭据与运行行为
 
 - OAuth 主机固定为 `https://auth.kimi.com`，推理和额度请求固定使用 `https://api.kimi.com/coding`。OAuth 账号不接受自定义转发地址；API Key 账号保持原有行为。

@@ -100,7 +100,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if resolved, ok := ResolveBedrockModelID(account, validationModel); ok {
 				validationModel = resolved
 			}
-		} else if account.Type == AccountTypeAPIKey {
+		} else if account.Type == AccountTypeAPIKey || account.IsAnthropicOAuthOrSetupToken() {
 			validationModel = account.GetMappedModel(validationModel)
 		}
 	}
@@ -284,12 +284,18 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 	// 应用模型映射：
 	// - APIKey 账号：使用账号级别的显式映射（如果配置），否则透传原始模型名
-	// - OAuth/SetupToken 账号：使用 Anthropic 标准映射（短ID → 长ID）
+	// - OAuth/SetupToken 账号：优先显式映射，否则使用 Anthropic 标准映射。
 	mappedModel := reqModel
 	mappingSource := ""
 	if account.Type == AccountTypeAPIKey {
 		mappedModel = account.GetMappedModel(reqModel)
 		if mappedModel != reqModel {
+			mappingSource = "account"
+		}
+	} else if account.IsAnthropicOAuthOrSetupToken() {
+		// Mimicry may normalize short IDs; resolve against the client's original ID.
+		if candidate, matched := account.ResolveMappedModel(originalModel); matched {
+			mappedModel = candidate
 			mappingSource = "account"
 		}
 	}

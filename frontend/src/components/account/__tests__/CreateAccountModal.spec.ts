@@ -45,6 +45,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       create: createAccountMock,
+      exchangeCode: vi.fn().mockResolvedValue({ access_token: 'claude-access', refresh_token: 'claude-refresh' }),
       probeUpstreamBilling: probeUpstreamBillingMock,
       syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
@@ -91,7 +92,7 @@ const OAuthAuthorizationFlowStub = defineComponent({
     initialInputMethod: String,
   },
   data: () => ({ inputMethod: 'manual' }),
-  emits: ['import-codex-session', 'import-codex-pat'],
+  emits: ['import-codex-session', 'import-codex-pat', 'cookie-auth'],
   template: `
     <div>
       <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
@@ -224,6 +225,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'Kimi')
     await wrapper.get('input[type="radio"][value="oauth-based"]').setValue()
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Kimi OAuth')
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('update:modelValue', ['kimi-for-coding'])
     expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -233,6 +235,26 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     flow.vm.$emit('authorized', credentials)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'kimi', type: 'oauth', name: 'Kimi OAuth', credentials })
+    expect(createAccountMock.mock.calls[0]?.[0].credentials.model_mapping).toEqual({ 'kimi-for-coding': 'kimi-for-coding' })
+    wrapper.unmount()
+  })
+
+  it('keeps Claude OAuth model settings on cookie authorization', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Anthropic')
+    await selectButtonByText(wrapper, 'admin.accounts.claudeCode')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Claude OAuth')
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('update:modelValue', ['claude-sonnet-4-6'])
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    wrapper.getComponent(OAuthAuthorizationFlowStub).vm.$emit('cookie-auth', 'sk-ant-sid-test-session')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'anthropic', type: 'oauth', credentials: {
+        access_token: 'claude-access', refresh_token: 'claude-refresh',
+        model_mapping: { 'claude-sonnet-4-6': 'claude-sonnet-4-6' }
+      }
+    })
     wrapper.unmount()
   })
 

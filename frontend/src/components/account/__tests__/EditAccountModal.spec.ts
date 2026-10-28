@@ -330,6 +330,32 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it.each([['kimi', 'oauth'], ['anthropic', 'oauth'], ['anthropic', 'setup-token']])(
+    'loads and saves %s %s model settings without changing authorization', async (platform, type) => {
+      const account = { ...buildAccount(), platform, type, credentials: {
+        access_token: 'access', refresh_token: 'refresh', device_id: 'device',
+        model_mapping: { 'client-alias': 'upstream-model', 'direct-model': 'direct-model' }
+      } }
+      updateAccountMock.mockReset().mockResolvedValue(account)
+      checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+      const wrapper = mountModal(account)
+      const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+      expect(selector.attributes('account-id')).toBe('1')
+      expect(selector.attributes('platform')).toBe(platform)
+      expect(selector.props('modelMappings')).toEqual([{ from: 'client-alias', to: 'upstream-model' }])
+      expect(selector.props('modelValue')).toEqual(['direct-model'])
+      await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.modelMapping')!.trigger('click')
+      const target = wrapper.findAll('input').find(input => (input.element as HTMLInputElement).value === 'upstream-model')!
+      await target.setValue('new-upstream-model')
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+        access_token: 'access', refresh_token: 'refresh', device_id: 'device',
+        model_mapping: { 'client-alias': 'new-upstream-model', 'direct-model': 'direct-model' }
+      })
+      wrapper.unmount()
+    }
+  )
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })

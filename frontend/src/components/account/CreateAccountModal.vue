@@ -2502,9 +2502,9 @@
         </div>
       </div>
 
-      <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
+      <!-- OAuth accounts share the model whitelist and mapping editor. -->
       <div
-        v-if="(form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow"
+        v-if="['openai', 'grok', 'anthropic', 'kimi'].includes(form.platform) && isOAuthFlow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -4161,6 +4161,7 @@
 <script setup lang="ts">
 import OpenAIBPSAccountFields from './OpenAIBPSAccountFields.vue'
 import { newBPSAccountDraft, bpsCredentials } from '@/utils/openaiBps'
+import { supportsOAuthModelSettings } from '@/utils/oauthModelSettings'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -5949,6 +5950,12 @@ const confirmBPSRisk = async () => {
   await doCreateAccount(pending.payload, true)
 }
 const doCreateAccount = async (payload: CreateAccountRequest, bpsRiskConfirmed = false) => {
+  if (supportsOAuthModelSettings(payload) && ['anthropic', 'kimi'].includes(payload.platform)) {
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    payload = { ...payload, credentials: { ...payload.credentials } }
+    if (modelMapping) payload.credentials.model_mapping = modelMapping
+    else delete payload.credentials.model_mapping
+  }
   if (payload.platform === 'openai_bps') {
     if (submitting.value || pendingBPSCreate.value) return
     if (!bpsRiskConfirmed) {
@@ -7553,6 +7560,8 @@ const handleCookieAuth = async (sessionKey: string) => {
 
         const credentials: Record<string, unknown> = { ...tokenInfo }
         applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        if (modelMapping) credentials.model_mapping = modelMapping
         if (tempUnschedEnabled.value) {
           credentials.temp_unschedulable_enabled = true
           credentials.temp_unschedulable_rules = tempUnschedPayload

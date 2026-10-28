@@ -38,6 +38,29 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAccountHandlerGetAvailableModels_OAuthHonorsModelMappings(t *testing.T) {
+	for _, platform := range []string{service.PlatformAnthropic, service.PlatformKimi} {
+		t.Run(platform, func(t *testing.T) {
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+				ID: 44, Platform: platform, Type: service.AccountTypeOAuth,
+				Credentials: map[string]any{"model_mapping": map[string]any{"public-model": "upstream-model"}},
+			}}
+			router := setupAvailableModelsRouter(svc)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/44/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			var response struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			require.Len(t, response.Data, 1)
+			require.Equal(t, "public-model", response.Data[0].ID)
+		})
+	}
+}
+
 type syncUpstreamHTTPUpstream struct {
 	resp      *http.Response
 	responses []*http.Response
