@@ -537,18 +537,28 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 	if account == nil || !account.IsOpenAI() {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
+	now := time.Now()
+	// 账号开启"余额超量"且余额快照新鲜时，额度型暂停一律放行：请求照常发往上游，
+	// 由上游按余额计费（余额不足时上游返回 429，网关照常冷却并切号）。免费的重置卡
+	// 优先级更高——命中用卡阈值仍会异步通知后台用卡，只是不再挡住请求。
+	overage := resolveOpenAICreditOverage(account, now)
 	// 自动用卡有独立阈值：达到消费阈值时必须先退出调度；仅达到普通暂停阈值时，
 	// 只有新鲜状态明确存在可用卡才继续放行到消费阈值。
 	if config := ResolveOpenAIAutoResetCreditConfig(account); config.Enabled {
-		now := time.Now()
 		utilization5h, has5h := resolveOpenAIQuotaUtilization(account.Extra, "5h", now)
 		utilization7d, has7d := resolveOpenAIQuotaUtilization(account.Extra, "7d", now)
 		if has5h && utilization5h >= config.Threshold5h {
 			notifyOpenAIAutoResetFromScheduler(account.ID)
+			if overage.Allowed {
+				return false, openAIQuotaAutoPauseDecision{}
+			}
 			return true, openAIQuotaAutoPauseDecision{window: "5h", threshold: config.Threshold5h, utilization: utilization5h, reason: "quota_auto_reset_pending_5h"}
 		}
 		if has7d && utilization7d >= config.Threshold7d {
 			notifyOpenAIAutoResetFromScheduler(account.ID)
+			if overage.Allowed {
+				return false, openAIQuotaAutoPauseDecision{}
+			}
 			return true, openAIQuotaAutoPauseDecision{window: "7d", threshold: config.Threshold7d, utilization: utilization7d, reason: "quota_auto_reset_pending_7d"}
 		}
 
@@ -563,11 +573,21 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 				return false, openAIQuotaAutoPauseDecision{}
 			}
 			notifyOpenAIAutoResetFromScheduler(account.ID)
+			if overage.Allowed {
+				return false, openAIQuotaAutoPauseDecision{}
+			}
 			if pauseReached5h {
 				return true, openAIQuotaAutoPauseDecision{window: "5h", threshold: pause5h, utilization: utilization5h, reason: "quota_auto_reset_credit_check_5h"}
 			}
 			return true, openAIQuotaAutoPauseDecision{window: "7d", threshold: pause7d, utilization: utilization7d, reason: "quota_auto_reset_credit_check_7d"}
 		}
+	}
+	if overage.Allowed {
+		slog.Debug("openai_credit_overage_served",
+			"account_id", account.ID,
+			"reason", overage.Reason,
+		)
+		return false, openAIQuotaAutoPauseDecision{}
 	}
 	// Per-account explicit-disable flags must take precedence over the global default.
 	// Without these, leaving the account threshold blank means "use global default",
@@ -577,7 +597,6 @@ func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) 
 	disabled5h := resolveAccountExtraBool(account.Extra, "auto_pause_5h_disabled")
 	disabled7d := resolveAccountExtraBool(account.Extra, "auto_pause_7d_disabled")
 	threshold5h, threshold7d := resolveOpenAIQuotaAutoPauseThresholds(ctx, account)
-	now := time.Now()
 	if !disabled5h && threshold5h > 0 {
 		if utilization, ok := resolveOpenAIQuotaUtilization(account.Extra, "5h", now); ok && utilization >= threshold5h {
 			return true, openAIQuotaAutoPauseDecision{window: "5h", threshold: threshold5h, utilization: utilization}

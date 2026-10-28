@@ -1175,6 +1175,8 @@ export default {
 	  autoPause5hDisabled: 'Disable 5h auto-pause',
 	  autoPause7dDisabled: 'Disable 7d auto-pause',
 	  autoPauseDisabledHint: 'When enabled, this account is never auto-paused (even if a global default threshold is configured).',
+	  creditOverageEnabled: 'Allow credit overage',
+	  creditOverageHint: 'Keep scheduling this account when its usage windows are exhausted but it still has usable credits; the upstream bills the balance. When the balance is not enough the upstream returns 429 and the gateway cools the account down as usual. Ignored when the credit snapshot is older than 2 hours. Free reset credits still take priority; they just no longer block traffic.',
 	  claudeResetCredits: {
 	    count: 'Resets',
 	    countTooltipLoad: 'Check remaining Claude resets (read-only, never consumes one)',
