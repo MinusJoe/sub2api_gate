@@ -2,7 +2,8 @@
 set -euo pipefail
 
 image="${1:?usage: verify-dev-image.sh image@sha256:digest}"
-[[ "$image" =~ ^ghcr\.io/talent668/sub2api_gate@sha256:[0-9a-f]{64}$ ]] || {
+: "${GITHUB_REPOSITORY:?}"
+[[ "$image" == "ghcr.io/${GITHUB_REPOSITORY,,}@"* && "${image#*@}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
   echo 'Expected the immutable sub2api_gate image digest' >&2
   exit 1
 }
