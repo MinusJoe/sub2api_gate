@@ -26,7 +26,7 @@ Sub4API 基于 sub2api 二次开发，完全兼容 sub2api，并会持续同步�
 
 `dev` 基于 `MACOS-DO/sub4api` v1.1.11（`fd6790fd0`）和 `Wei-Shaw/sub2api` v0.2.18（`ac1b8f127`）重新三方合并。额外保留当前侧栏菜单精简，在使用记录的延迟列显示缓存读取占比，并接入分组级 OpenAI 档位策略及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)。
 
-开发镜像为 `ghcr.io/talent668/sub2api_gate:dev`，由现有 Dev image 工作流构建并检查两种架构启动后更新。
+开发镜像为 `ghcr.io/runemesh/sub2api_gate:dev`，由现有 Dev image 工作流构建并检查两种架构启动后更新。
 
 ## 相比 sub2api 的主要改进
 

@@ -14,11 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/talent668/sub2api_gate
+  IMAGE: ghcr.io/runemesh/sub2api_gate
 
 jobs:
   publish:
-    if: github.repository == 'talent668/sub2api_gate' && github.ref == 'refs/heads/dev'
+    if: github.repository == 'RuneMesh/sub2api_gate' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
