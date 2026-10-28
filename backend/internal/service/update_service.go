@@ -30,7 +30,7 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "RuneMesh/sub2api_gate"
+	githubRepo     = "MinusJoe/sub2api_gate"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
