@@ -1482,8 +1482,9 @@ func (a *Account) IsOpenAIOAuthLike() bool {
 
 // UsesOpenAICodexProtocol preserves legacy OpenAI gateway OAuth routing for
 // accounts whose platform is implicit, while adding OpenAI SetupToken.
+// Explicit foreign providers must retain their own HTTP authority and protocol.
 func (a *Account) UsesOpenAICodexProtocol() bool {
-	return a != nil && (a.Type == AccountTypeOAuth || a.IsOpenAIOAuthLike())
+	return a != nil && ((a.Platform == "" && a.Type == AccountTypeOAuth) || a.IsOpenAIOAuthLike())
 }
 
 func (a *Account) IsOpenAIChatGPTSubscription() bool {

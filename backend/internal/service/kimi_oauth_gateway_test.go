@@ -58,6 +58,7 @@ func TestKimiOAuthGatewayUsesOfficialEndpointForEachProtocol(t *testing.T) {
 			require.NotNil(t, result)
 			require.NotNil(t, upstream.lastReq)
 			require.Equal(t, "api.kimi.com", upstream.lastReq.URL.Host)
+			require.Equal(t, "api.kimi.com", upstream.lastReq.Host, "the HTTP authority must match Kimi, not ChatGPT")
 			require.Equal(t, "https", upstream.lastReq.URL.Scheme)
 			require.Equal(t, "Bearer old-access", upstream.lastReq.Header.Get("Authorization"))
 			require.Empty(t, upstream.lastReq.Header.Get("X-Api-Key"))
