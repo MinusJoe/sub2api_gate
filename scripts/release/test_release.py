@@ -27,6 +27,22 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn('githubRepo     = "MinusJoe/sub2api_gate"',
                       (ROOT / 'backend/internal/service/update_service.go').read_text(encoding='utf-8'))
 
+    def test_smoke_image_guard_tracks_repository_owner_and_requires_digest(self):
+        guard = (ROOT / 'scripts/ci/verify-dev-image.sh').read_text(encoding='utf-8').split(': "${VERSION:?}"', 1)[0]
+        digest = 'a' * 64
+        for repo in ['MinusJoe/sub2api_gate', 'FutureOwner/sub2api_gate']:
+            expected = 'ghcr.io/' + repo.lower()
+            for image, accepted in [
+                (expected + '@sha256:' + digest, True),
+                ('ghcr.io/talent668/sub2api_gate@sha256:' + digest, False),
+                (expected + ':1.1.12', False),
+                (expected + '@sha256:invalid', False),
+            ]:
+                with self.subTest(repo=repo, image=image):
+                    result = subprocess.run(['bash', '-c', guard, 'smoke-guard', image],
+                                            env={**self.env, 'GITHUB_REPOSITORY': repo}, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
