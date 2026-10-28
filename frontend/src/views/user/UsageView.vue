@@ -132,10 +132,12 @@
             <button type="button" @click="resetFilters" class="btn btn-secondary">
               {{ t('common.reset') }}
             </button>
-            <div class="relative" ref="columnDropdownRef">
+            <div class="relative" ref="columnDropdownRef" @keydown.esc.stop.prevent="closeColumnDropdown">
               <button
                 type="button"
                 data-testid="usage-column-settings"
+                :aria-expanded="showColumnDropdown"
+                aria-haspopup="dialog"
                 @click="showColumnDropdown = !showColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
@@ -143,22 +145,17 @@
                 <Icon name="grid" size="sm" />
                 <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
               </button>
-              <div
+              <ColumnOrderSettings
                 v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-              >
-                <button
-                  v-for="col in currentToggleableColumns"
-                  :key="col.key"
-                  type="button"
-                  :data-testid="`usage-column-toggle-${col.key}`"
-                  @click="toggleCurrentColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                >
-                  <span>{{ col.label }}</span>
-                  <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
-                </button>
-              </div>
+                class="absolute right-0 top-full z-50 mt-1"
+                :columns="currentOrderedColumns"
+                :visible-keys="currentVisibleColumnKeys"
+                :locked-keys="currentLockedColumns"
+                @toggle="toggleCurrentColumn"
+                @reorder="reorderCurrentColumns"
+                @reset="resetCurrentColumnOrder"
+                @close="closeColumnDropdown"
+              />
             </div>
             <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
               {{ exporting ? t('usage.exporting') : t('usage.exportCsv') }}
@@ -237,6 +234,8 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useColumnOrder } from '@/composables/useColumnOrder'
+import ColumnOrderSettings from '@/components/common/ColumnOrderSettings.vue'
 import { formatReasoningEffort } from '@/utils/format'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -730,13 +729,14 @@ const allColumns = computed<Column[]>(() => [
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
 ])
 
+const { orderedColumns, setOrder: setColumnOrder, resetOrder: resetColumnOrder } = useColumnOrder(allColumns, 'user-usage-column-order')
+
 const hiddenColumns = reactive<Set<string>>(new Set())
-const toggleableColumns = computed(() => allColumns.value.filter((col) => !ALWAYS_VISIBLE.includes(col.key)))
 const visibleColumns = computed(() =>
-  allColumns.value.filter((col) => ALWAYS_VISIBLE.includes(col.key) || !hiddenColumns.has(col.key))
+  orderedColumns.value.filter((col) => ALWAYS_VISIBLE.includes(col.key) || !hiddenColumns.has(col.key))
 )
-const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 const toggleColumn = (key: string) => {
+  if (ALWAYS_VISIBLE.includes(key)) return
   if (hiddenColumns.has(key)) hiddenColumns.delete(key)
   else hiddenColumns.add(key)
   localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
@@ -772,17 +772,16 @@ const errAllColumns = computed<Column[]>(() => [
   { key: 'user_agent', label: t('usage.userAgent') },
 ])
 
+const { orderedColumns: errOrderedColumns, setOrder: setErrColumnOrder, resetOrder: resetErrColumnOrder } = useColumnOrder(errAllColumns, 'user-usage-error-column-order')
+
 const errHiddenColumns = reactive<Set<string>>(new Set())
-const errToggleableColumns = computed(() =>
-  errAllColumns.value.filter((col) => !ERR_ALWAYS_VISIBLE.includes(col.key))
-)
 const errVisibleColumnKeys = computed(() =>
-  errAllColumns.value
+  errOrderedColumns.value
     .filter((col) => ERR_ALWAYS_VISIBLE.includes(col.key) || !errHiddenColumns.has(col.key))
     .map((col) => col.key)
 )
-const isErrColumnVisible = (key: string) => !errHiddenColumns.has(key)
 const toggleErrColumn = (key: string) => {
+  if (ERR_ALWAYS_VISIBLE.includes(key)) return
   if (errHiddenColumns.has(key)) errHiddenColumns.delete(key)
   else errHiddenColumns.add(key)
   localStorage.setItem(ERR_HIDDEN_COLUMNS_KEY, JSON.stringify([...errHiddenColumns]))
@@ -798,11 +797,15 @@ const loadSavedErrColumns = () => {
 }
 
 // 列设置下拉按当前 tab 分发
-const currentToggleableColumns = computed(() =>
-  activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
+const currentOrderedColumns = computed(() =>
+  activeTab.value === 'errors' ? errOrderedColumns.value : orderedColumns.value
 )
-const isCurrentColumnVisible = (key: string) =>
-  activeTab.value === 'errors' ? isErrColumnVisible(key) : isColumnVisible(key)
+const currentVisibleColumnKeys = computed(() =>
+  activeTab.value === 'errors' ? errVisibleColumnKeys.value : visibleColumns.value.map(column => column.key)
+)
+const currentLockedColumns = computed(() => activeTab.value === 'errors' ? ERR_ALWAYS_VISIBLE : ALWAYS_VISIBLE)
+const reorderCurrentColumns = (keys: string[]) => activeTab.value === 'errors' ? setErrColumnOrder(keys) : setColumnOrder(keys)
+const resetCurrentColumnOrder = () => activeTab.value === 'errors' ? resetErrColumnOrder() : resetColumnOrder()
 const toggleCurrentColumn = (key: string) => {
   if (activeTab.value === 'errors') toggleErrColumn(key)
   else toggleColumn(key)
@@ -810,6 +813,10 @@ const toggleCurrentColumn = (key: string) => {
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
+const closeColumnDropdown = () => {
+  showColumnDropdown.value = false
+  columnDropdownRef.value?.querySelector<HTMLButtonElement>('[data-testid="usage-column-settings"]')?.focus()
+}
 const handleColumnClickOutside = (event: MouseEvent) => {
   if (columnDropdownRef.value && !columnDropdownRef.value.contains(event.target as HTMLElement)) {
     showColumnDropdown.value = false

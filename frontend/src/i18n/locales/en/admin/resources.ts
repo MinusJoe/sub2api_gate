@@ -118,6 +118,22 @@ export default {
         allStatuses: 'All Status'
       },
       testConnection: 'Test Connection',
+      autoTest: {
+        title: 'Auto speed test',
+        interval: 'Test interval',
+        custom: 'Custom',
+        customSeconds: 'Custom test interval (seconds)',
+        secondsUnit: 'seconds',
+        apply: 'Apply',
+        invalidInterval: 'Enter a whole number of seconds, at least 1.',
+        selectedScope: 'Test {count} selected IPs',
+        filteredScope: 'Test all IPs matching the current filters',
+        countdown: 'Next test in {seconds}s',
+        running: 'Testing…',
+        paused: 'Paused',
+        retry: 'Round incomplete; retrying in {seconds}s',
+        hint: 'Runs on this page only and pauses in the background. Leaving the page or closing the browser stops testing. Each interval starts after the previous round finishes.'
+      },
       qualityCheck: 'Quality Check',
       batchQualityCheck: 'Batch Quality Check',
       batchTest: 'Test All Proxies',

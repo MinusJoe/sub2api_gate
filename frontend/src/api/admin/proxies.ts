@@ -132,7 +132,7 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
  * @param id - Proxy ID
  * @returns Test result with IP info
  */
-export async function testProxy(id: number): Promise<{
+export async function testProxy(id: number, options?: { signal?: AbortSignal }): Promise<{
   success: boolean
   message: string
   latency_ms?: number
@@ -151,7 +151,7 @@ export async function testProxy(id: number): Promise<{
     region?: string
     country?: string
     country_code?: string
-  }>(`/admin/proxies/${id}/test`)
+  }>(`/admin/proxies/${id}/test`, undefined, options)
   return data
 }
 

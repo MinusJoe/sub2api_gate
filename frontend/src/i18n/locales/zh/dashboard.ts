@@ -336,6 +336,32 @@ export default {
 
   // Usage
   usage: {
+    columnOrder: {
+      hint: '拖动列名，或用箭头调整顺序',
+      drag: '拖动调整“{column}”的位置',
+      moveUp: '上移“{column}”',
+      moveDown: '下移“{column}”',
+      required: '此列始终显示，可调整位置',
+      reset: '恢复默认顺序'
+    },
+    proxyLatency: {
+      title: '自动测速代理',
+      count: '共 {count} 个',
+      source: 'IP 管理中设置的代理 · 最近测速结果',
+      empty: '请先在 IP 管理中开启定时测速',
+      missing: '未找到已设置的测速代理',
+      failed: '连接失败',
+      untested: '未测速',
+      noSampleTime: '暂无测速时间',
+      sampledAt: '测速于 {time}',
+      previous: '上一组代理',
+      next: '下一组代理',
+      pause: '暂停轮替',
+      resume: '继续轮替',
+      refresh: '刷新测速结果',
+      loadFailed: '测速结果加载失败',
+      stale: '更新失败，当前显示上次获取的测速结果'
+    },
     title: '使用记录',
     description: '查看和分析您的 API 使用历史',
     costDetails: '费用明细',

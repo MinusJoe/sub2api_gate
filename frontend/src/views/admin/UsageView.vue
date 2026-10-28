@@ -83,11 +83,15 @@
           </button>
         </div>
 
+        <UsageProxyLatencyStrip />
+
         <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
-            <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
+            <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef" @keydown.esc.stop.prevent="closeColumnDropdown">
               <button
                 data-testid="usage-column-settings"
+                :aria-expanded="showColumnDropdown"
+                aria-haspopup="dialog"
                 @click="showColumnDropdown = !showColumnDropdown"
                 class="btn btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
@@ -97,27 +101,17 @@
                 </svg>
                 <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
               </button>
-              <div
+              <ColumnOrderSettings
                 v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-              >
-                <button
-                  v-for="col in currentToggleableColumns"
-                  :key="col.key"
-                  :data-testid="`usage-column-toggle-${col.key}`"
-                  @click="toggleCurrentColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                >
-                  <span>{{ col.label }}</span>
-                  <Icon
-                    v-if="isCurrentColumnVisible(col.key)"
-                    name="check"
-                    size="sm"
-                    class="text-primary-500"
-                    :stroke-width="2"
-                  />
-                </button>
-              </div>
+                class="absolute right-0 top-full z-50 mt-1"
+                :columns="currentOrderedColumns"
+                :visible-keys="currentVisibleColumnKeys"
+                :locked-keys="currentLockedColumns"
+                @toggle="toggleCurrentColumn"
+                @reorder="reorderCurrentColumns"
+                @reset="resetCurrentColumnOrder"
+                @close="closeColumnDropdown"
+              />
             </div>
           </template>
         </UsageFilters>
@@ -190,6 +184,8 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useColumnOrder } from '@/composables/useColumnOrder'
+import ColumnOrderSettings from '@/components/common/ColumnOrderSettings.vue'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -205,6 +201,7 @@ import type { OpsErrorLog } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UsageProxyLatencyStrip from '@/components/admin/usage/UsageProxyLatencyStrip.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
@@ -657,21 +654,20 @@ const allColumns = computed(() => [
   { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false }
 ])
 
+const { orderedColumns, setOrder: setColumnOrder, resetOrder: resetColumnOrder } = useColumnOrder(allColumns, 'usage-column-order')
+
 const hiddenColumns = reactive<Set<string>>(new Set())
 
-const toggleableColumns = computed(() =>
-  allColumns.value.filter(col => !ALWAYS_VISIBLE.includes(col.key))
-)
 
 const visibleColumns = computed(() =>
-  allColumns.value.filter(col =>
+  orderedColumns.value.filter(col =>
     ALWAYS_VISIBLE.includes(col.key) || !hiddenColumns.has(col.key)
   )
 )
 
-const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 
 const toggleColumn = (key: string) => {
+  if (ALWAYS_VISIBLE.includes(key)) return
   if (hiddenColumns.has(key)) {
     hiddenColumns.delete(key)
   } else {
@@ -709,19 +705,19 @@ const errAllColumns = computed(() => [
   { key: 'actions', label: t('admin.ops.errorLog.action') },
 ])
 
+const { orderedColumns: errOrderedColumns, setOrder: setErrColumnOrder, resetOrder: resetErrColumnOrder } = useColumnOrder(errAllColumns, 'usage-error-column-order')
+
 const errHiddenColumns = reactive<Set<string>>(new Set())
 
-const errToggleableColumns = computed(() =>
-  errAllColumns.value.filter(col => !ERR_ALWAYS_VISIBLE.includes(col.key))
-)
 
 const errVisibleColumnKeys = computed(() =>
-  errAllColumns.value
+  errOrderedColumns.value
     .filter(col => ERR_ALWAYS_VISIBLE.includes(col.key) || !errHiddenColumns.has(col.key))
     .map(col => col.key)
 )
 
 const toggleErrColumn = (key: string) => {
+  if (ERR_ALWAYS_VISIBLE.includes(key)) return
   if (errHiddenColumns.has(key)) {
     errHiddenColumns.delete(key)
   } else {
@@ -745,11 +741,15 @@ const loadSavedErrColumns = () => {
 }
 
 // 列设置下拉按当前 tab 分发
-const currentToggleableColumns = computed(() =>
-  activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
+const currentOrderedColumns = computed(() =>
+  activeTab.value === 'errors' ? errOrderedColumns.value : orderedColumns.value
 )
-const isCurrentColumnVisible = (key: string) =>
-  activeTab.value === 'errors' ? !errHiddenColumns.has(key) : isColumnVisible(key)
+const currentVisibleColumnKeys = computed(() =>
+  activeTab.value === 'errors' ? errVisibleColumnKeys.value : visibleColumns.value.map(column => column.key)
+)
+const currentLockedColumns = computed(() => activeTab.value === 'errors' ? ERR_ALWAYS_VISIBLE : ALWAYS_VISIBLE)
+const reorderCurrentColumns = (keys: string[]) => activeTab.value === 'errors' ? setErrColumnOrder(keys) : setColumnOrder(keys)
+const resetCurrentColumnOrder = () => activeTab.value === 'errors' ? resetErrColumnOrder() : resetColumnOrder()
 const toggleCurrentColumn = (key: string) =>
   activeTab.value === 'errors' ? toggleErrColumn(key) : toggleColumn(key)
 
@@ -857,6 +857,10 @@ const openError = (id: number) => { selectedErrorId.value = id; showErrorModal.v
 
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
+const closeColumnDropdown = () => {
+  showColumnDropdown.value = false
+  columnDropdownRef.value?.querySelector<HTMLButtonElement>('[data-testid="usage-column-settings"]')?.focus()
+}
 
 const handleColumnClickOutside = (event: MouseEvent) => {
   if (columnDropdownRef.value && !columnDropdownRef.value.contains(event.target as HTMLElement)) {
