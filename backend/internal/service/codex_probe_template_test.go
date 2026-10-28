@@ -148,6 +148,15 @@ func TestCodexProbeAccountIdentityAndDefaultTimezone(t *testing.T) {
 	require.ErrorIs(t, err, ErrCodexProbeIdentity)
 }
 
+func TestCodexProbeRejectsNilPinnedTemplate(t *testing.T) {
+	ctx := context.WithValue(context.Background(), codexProbeTemplateContextKey{}, (*CodexProbeTemplate)(nil))
+	svc := &OpenAIGatewayService{}
+	body, headers, err := svc.buildCodexProbeRequest(ctx, ticketTestAccount(41), "gpt-6-astra", ModelTraceChallenge{Prompt: "test"})
+	require.ErrorIs(t, err, ErrCodexProbeTemplateInvalid)
+	require.Nil(t, body)
+	require.Nil(t, headers)
+}
+
 func TestCodexProbeSnapshotAndCacheRefresh(t *testing.T) {
 	repo := &codexPolicyMigrationRepoStub{values: map[string]string{}}
 	settings := &SettingService{settingRepo: repo}
