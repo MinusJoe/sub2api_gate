@@ -217,6 +217,7 @@ export interface SidebarMenuVisibility {
   subscriptions: boolean
   redeem: boolean
   profile: boolean
+  audit_logs: boolean
 }
 
 export interface PublicSettings {

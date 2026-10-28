@@ -361,6 +361,7 @@ export const useAppStore = defineStore('app', () => {
           subscriptions: false,
           redeem: false,
           profile: false,
+          audit_logs: false,
         },
         custom_endpoints: [],
         linuxdo_oauth_enabled: false,

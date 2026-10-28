@@ -12,6 +12,7 @@ type SidebarMenuVisibility struct {
 	Subscriptions      bool `json:"subscriptions"`
 	Redeem             bool `json:"redeem"`
 	Profile            bool `json:"profile"`
+	AuditLogs          bool `json:"audit_logs"`
 }
 
 func parseSidebarMenuVisibility(raw string) SidebarMenuVisibility {

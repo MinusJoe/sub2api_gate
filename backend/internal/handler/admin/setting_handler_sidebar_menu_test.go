@@ -17,7 +17,7 @@ func TestSettingsSidebarMenuVisibilityRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, service.SidebarMenuVisibility{}, initial.SidebarMenuVisibility)
 
-	want := service.SidebarMenuVisibility{Channels: true, Redeem: true, Profile: true}
+	want := service.SidebarMenuVisibility{Channels: true, Redeem: true, Profile: true, AuditLogs: true}
 	rec := doUpdateSettings(t, h, map[string]any{"sidebar_menu_visibility": want}, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var response struct {

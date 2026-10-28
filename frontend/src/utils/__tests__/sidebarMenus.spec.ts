@@ -31,6 +31,7 @@ describe('sidebar menu visibility', () => {
     expect(normalized.channels).toBe(true)
     expect(normalized.profile).toBe(false)
     expect(normalized.redeem).toBe(false)
+    expect(normalized.audit_logs).toBe(false)
     normalized.channels = false
     expect(saved.channels).toBe(true)
   })

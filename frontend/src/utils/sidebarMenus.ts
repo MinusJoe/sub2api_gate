@@ -9,6 +9,7 @@ export const SIDEBAR_MENU_ITEMS = [
   { key: 'subscriptions', path: '/subscriptions', labelKey: 'nav.mySubscriptions' },
   { key: 'redeem', path: '/redeem', labelKey: 'nav.redeem' },
   { key: 'profile', path: '/profile', labelKey: 'nav.profile' },
+  { key: 'audit_logs', path: '/admin/audit-logs', labelKey: 'nav.auditLogs' },
 ] as const
 
 export function normalizeSidebarMenuVisibility(
@@ -23,6 +24,7 @@ export function normalizeSidebarMenuVisibility(
     subscriptions: value?.subscriptions === true,
     redeem: value?.redeem === true,
     profile: value?.profile === true,
+    audit_logs: value?.audit_logs === true,
   }
 }
 
