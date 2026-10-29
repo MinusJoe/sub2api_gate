@@ -137,8 +137,10 @@ func (s *OpenAIQuotaAutoResetService) refreshOverageCredits(ctx context.Context,
 	if !openAICreditSnapshotNeedsRefresh(account.Extra, now) {
 		return nil
 	}
-	if retryAt, ok := s.creditRefreshRetryAt.Load(account.ID); ok && now.Before(retryAt.(time.Time)) {
-		return nil
+	if value, loaded := s.creditRefreshRetryAt.Load(account.ID); loaded {
+		if retryAt, ok := value.(time.Time); ok && now.Before(retryAt) {
+			return nil
+		}
 	}
 	s.creditRefreshRetryAt.Store(account.ID, now.Add(openAIAutoResetQueryFailureRetryAfter))
 	usage, err := s.quota.QueryUsage(ctx, account.ID)

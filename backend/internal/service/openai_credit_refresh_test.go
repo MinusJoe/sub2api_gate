@@ -30,7 +30,8 @@ func TestCreditOverageRefreshWithoutResetAuthorization(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, repo, quota := newCreditRefreshFixture(tc.credits)
 			require.NoError(t, svc.evaluateAccount(context.Background(), 42))
-			snapshot := repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot)
+			snapshot, ok := repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot)
+			require.True(t, ok)
 			require.Equal(t, tc.credits, snapshot.Credits)
 			require.Positive(t, snapshot.FetchedAt)
 			require.NotContains(t, repo.account.Extra, OpenAIAutoResetCreditStateExtraKey)
@@ -67,7 +68,9 @@ func TestAutoResetPersistsCreditsWithoutResetDetails(t *testing.T) {
 	repo.setExtraForTest(OpenAIAutoResetCreditEnabledExtraKey, true)
 	quota.usage.RateLimitResetCredits = nil
 	require.Error(t, svc.evaluateAccount(context.Background(), 42))
-	require.Equal(t, quota.usage.Credits, repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot).Credits)
+	snapshot, ok := repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot)
+	require.True(t, ok)
+	require.Equal(t, quota.usage.Credits, snapshot.Credits)
 	require.Zero(t, quota.resetCalls.Load())
 }
 
@@ -82,7 +85,9 @@ func TestAutoResetRefreshesStaleBalanceDespiteFreshNoCreditState(t *testing.T) {
 	quota.usage.FetchedAt = now.Unix()
 	require.NoError(t, svc.evaluateAccount(context.Background(), repo.account.ID))
 	require.EqualValues(t, 1, quota.queryCalls.Load())
-	require.Equal(t, quota.usage.Credits, repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot).Credits)
+	snapshot, ok := repo.account.Extra[openaiQuotaCreditsKey].(openAICreditsSnapshot)
+	require.True(t, ok)
+	require.Equal(t, quota.usage.Credits, snapshot.Credits)
 	require.NoError(t, svc.evaluateAccount(context.Background(), repo.account.ID))
 	require.EqualValues(t, 1, quota.queryCalls.Load())
 	require.Zero(t, quota.resetCalls.Load())
