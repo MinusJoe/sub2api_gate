@@ -38,9 +38,12 @@ func TestLockAndMergeAccountExtraPreservesLatestCredits(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, true, extra[service.OpenAICreditOverageExtraKey])
 			if tc.present {
-				snapshot := extra["codex_credits_snapshot"].(map[string]any)
+				snapshot, ok := extra["codex_credits_snapshot"].(map[string]any)
+				require.True(t, ok)
 				require.EqualValues(t, 200, snapshot["fetched_at"])
-				require.Equal(t, false, snapshot["credits"].(map[string]any)["has_credits"])
+				credits, ok := snapshot["credits"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, false, credits["has_credits"])
 			} else {
 				require.NotContains(t, extra, "codex_credits_snapshot")
 			}
