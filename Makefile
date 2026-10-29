@@ -2,6 +2,7 @@
 
 FRONTEND_CRITICAL_VITEST := \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
+	src/i18n/__tests__/runtimeCompatibility.spec.ts \
 	src/utils/__tests__/sidebarMenus.spec.ts \
 	src/components/account/__tests__/KimiDeviceAuthorization.spec.ts \
 	src/views/admin/__tests__/ProxiesView.filters.spec.ts \
