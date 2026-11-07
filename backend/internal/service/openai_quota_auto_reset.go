@@ -607,8 +607,7 @@ func (s *OpenAIQuotaAutoResetService) persistFreshUsage(ctx context.Context, acc
 	if updates == nil {
 		updates = make(map[string]any)
 	}
-	updates[openaiQuotaCreditsKey] = openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt}
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
+	if err := persistOpenAICreditsObservation(ctx, s.accountRepo, accountID, usage, updates); err != nil {
 		return err
 	}
 	return s.quota.CacheResetCreditsSnapshot(ctx, accountID, usage.RateLimitResetCredits)

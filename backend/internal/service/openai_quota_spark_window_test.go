@@ -705,6 +705,7 @@ func TestCachePostResetSnapshot(t *testing.T) {
 		Credits:               &OpenAICredits{HasCredits: true, Balance: &balance},
 		FetchedAt:             123,
 		RateLimitResetCredits: credits,
+		creditsObservation:    &OpenAICreditsObservation{Target: &Account{ID: 100}, Source: &Account{ID: 100}},
 		RateLimit: &OpenAIRateLimit{
 			PrimaryWindow: &OpenAIRateLimitWindow{
 				UsedPercent: 0, LimitWindowSeconds: 5 * 60 * 60, ResetAfterSeconds: 5 * 60 * 60,

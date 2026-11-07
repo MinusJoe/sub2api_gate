@@ -63,6 +63,34 @@ const (
 	schedulerGroupLifecycleOwnerTokenBytes = 16
 )
 
+// Balance revisions are canonical decimal strings; never convert them to Lua
+// doubles. A stale full record is rejected together with its metadata so a new
+// balance can never be spliced into credentials from an older identity.
+var writeSchedulerCreditProtectedAccountScript = redis.NewScript(`
+local full = redis.call('GET', KEYS[1])
+local meta = redis.call('GET', KEYS[2])
+local function revision(raw)
+    if not raw then return '0' end
+    local ok, row = pcall(cjson.decode, raw)
+    if not ok or type(row) ~= 'table' then return nil end
+    if row.Extra == nil or row.Extra == cjson.null then return '0' end
+    if type(row.Extra) ~= 'table' then return nil end
+    local value = row.Extra.codex_credits_revision
+    if value == nil then return '0' end
+    if type(value) ~= 'string' or not string.match(value, '^%d+$') or (#value > 1 and string.sub(value, 1, 1) == '0') then return nil end
+    return value
+end
+local incoming = revision(ARGV[1])
+local current = revision(full)
+local currentMeta = revision(meta)
+if not incoming or not current or not currentMeta then return meta or false end
+local function newer(a, b) return #a > #b or (#a == #b and a > b) end
+if newer(current, incoming) or newer(currentMeta, incoming) then return meta or false end
+redis.call('SET', KEYS[1], ARGV[1])
+redis.call('SET', KEYS[2], ARGV[2])
+return meta or false
+`)
+
 var updateSchedulerLastUsedScript = redis.NewScript(`
 local updated = 0
 for index = 1, #ARGV do
@@ -997,7 +1025,7 @@ func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service
 
 	type metaWrite struct {
 		platform string
-		previous *redis.StatusCmd
+		previous *redis.Cmd
 	}
 	pipe := c.rdb.Pipeline()
 	accountIDs := make([]int64, 0, len(accounts))
@@ -1051,10 +1079,9 @@ func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service
 		}
 
 		id := strconv.FormatInt(account.ID, 10)
-		pipe.Set(ctx, schedulerAccountKey(id), fullPayload, 0)
 		writes = append(writes, metaWrite{
 			platform: account.Platform,
-			previous: pipe.SetArgs(ctx, schedulerAccountMetaKey(id), metaPayload, redis.SetArgs{Get: true}),
+			previous: writeSchedulerCreditProtectedAccountScript.Eval(ctx, pipe, []string{schedulerAccountKey(id), schedulerAccountMetaKey(id)}, fullPayload, metaPayload),
 		})
 		// Keep the hot LastUsedAt side key untouched: a lagging snapshot rebuild
 		// must not overwrite a newer scheduler update.
@@ -1082,8 +1109,8 @@ func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service
 
 // schedulerMetaPlatformChanged 判断 SET ... GET 取回的旧精简记录是否属于另一个平台；
 // 旧值不是合法 JSON 或缺少字符串类型的顶层 Platform 时按已变化处理。
-func schedulerMetaPlatformChanged(previous *redis.StatusCmd, platform string) bool {
-	raw, err := previous.Result()
+func schedulerMetaPlatformChanged(previous interface{ Text() (string, error) }, platform string) bool {
+	raw, err := previous.Text()
 	if err != nil {
 		return false
 	}
@@ -1361,6 +1388,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
+		// 生图尺寸档位在候选过滤阶段按本投影判定，裁掉后受限账号会接到不允许的档位。
+		service.AccountExtraOpenAIImageSizeTiers,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"codex_allow_without_ticket",
@@ -1379,6 +1408,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_7d_disabled",
 		service.OpenAICreditOverageExtraKey,
 		"codex_credits_snapshot",
+		service.OpenAICreditsRevisionExtraKey,
 		// 自动用卡：卡可用的 OpenAI 号在暂停阈值与用卡阈值之间继续调度。
 		// 候选过滤读的是本投影，缺这几个键时放行分支永远不会生效，
 		// 账号会在暂停阈值处被一刀切停调，直到窗口自然重置。

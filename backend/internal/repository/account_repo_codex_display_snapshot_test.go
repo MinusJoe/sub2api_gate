@@ -36,17 +36,29 @@ func TestUpdateExtraCodexDisplaySnapshotsAvoidSchedulerOutbox(t *testing.T) {
 					updates["openai_compact_enabled"] = true
 					mock.ExpectBegin()
 				}
-				payload, err := json.Marshal(updates)
+				// Credits affect scheduling and are managed by the revision-checked
+				// UpdateOpenAICreditsSnapshot path. Generic extra writes must not
+				// refresh or invalidate that snapshot, even in mixed updates.
+				persisted := map[string]any{}
+				if key != "codex_credits_snapshot" {
+					persisted[key] = tc.value
+				}
+				if tc.schedulingChange {
+					persisted["openai_compact_enabled"] = true
+				}
+				payload, err := json.Marshal(persisted)
 				require.NoError(t, err)
-				mock.ExpectExec(regexp.QuoteMeta("UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL")).
-					WithArgs(string(payload), int64(27)).WillReturnResult(sqlmock.NewResult(0, 1))
+				if len(persisted) > 0 {
+					mock.ExpectExec(regexp.QuoteMeta("UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL")).
+						WithArgs(string(payload), int64(27)).WillReturnResult(sqlmock.NewResult(0, 1))
+				}
 				if tc.schedulingChange {
 					mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
 						WithArgs(service.SchedulerOutboxEventAccountChanged, int64(27), nil, nil, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 					mock.ExpectCommit()
 				}
-				// Snapshot-only changes must perform just the UPDATE, without even a
-				// transaction or account_changed event that would rebuild scheduler buckets.
+				// Display-only changes avoid a transaction/outbox event; managed
+				// credits-only writes must not issue any SQL through UpdateExtra.
 				require.NoError(t, repo.UpdateExtra(context.Background(), 27, updates))
 				require.NoError(t, mock.ExpectationsWereMet())
 			})

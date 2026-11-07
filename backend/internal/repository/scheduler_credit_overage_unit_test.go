@@ -56,6 +56,63 @@ func TestSchedulerCacheCreditOverageSelection(t *testing.T) {
 	}
 }
 
+func TestSchedulerCacheCreditRevisionCannotRegress(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	account := service.Account{ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{
+		"codex_credits_revision":  "9007199254740993",
+		"codex_credits_snapshot":  map[string]any{"credits": nil, "fetched_at": 200},
+		"auto_pause_5h_threshold": 0.8,
+	}}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	account.Extra = map[string]any{
+		"codex_credits_revision":  "9007199254740992",
+		"codex_credits_snapshot":  map[string]any{"credits": map[string]any{"has_credits": true, "balance": "12.5"}, "fetched_at": 200},
+		"auto_pause_5h_threshold": 0.9,
+	}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	cached, err := cache.GetAccount(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "9007199254740993", cached.Extra["codex_credits_revision"])
+	snapshot, ok := cached.Extra["codex_credits_snapshot"].(map[string]any)
+	require.True(t, ok)
+	require.Nil(t, snapshot["credits"], "an older same-second positive observation must not revive unknown balance")
+	require.Equal(t, 0.8, cached.Extra["auto_pause_5h_threshold"], "an older protected record is rejected as a whole, never mixing a new balance into an old identity")
+}
+
+func TestSchedulerCacheCreditRevisionNilExtra(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	account := service.Account{ID: 43, Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey}
+	require.NoError(t, cache.SetAccount(ctx, &account), "nil Extra on an ordinary non-OpenAI account must remain cacheable")
+	require.NoError(t, cache.SetAccount(ctx, &account), "an existing JSON null Extra must remain writable")
+}
+
+func TestSchedulerCacheCreditRevisionProtectsIdentityAndRebuild(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	current := service.Account{ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"chatgpt_account_id": "workspace-b"}, Extra: map[string]any{service.OpenAICreditsRevisionExtraKey: "2"}}
+	require.NoError(t, cache.SetAccount(ctx, &current))
+	old := current
+	old.Credentials = map[string]any{"chatgpt_account_id": "workspace-a"}
+	old.Extra = map[string]any{service.OpenAICreditsRevisionExtraKey: "1", "codex_credits_snapshot": map[string]any{"credits": map[string]any{"has_credits": true, "balance": "12.5"}, "fetched_at": time.Now().Unix()}}
+	bucket := service.SchedulerBucket{Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{old}))
+	full, err := cache.GetAccount(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, "workspace-b", full.GetCredential("chatgpt_account_id"))
+	require.NotContains(t, full.Extra, "codex_credits_snapshot")
+	meta, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.NoError(t, err)
+	require.True(t, hit)
+	require.Len(t, meta, 1)
+	require.Equal(t, "workspace-b", meta[0].GetCredential("chatgpt_account_id"))
+	require.Equal(t, "2", meta[0].Extra[service.OpenAICreditsRevisionExtraKey])
+	require.NotContains(t, meta[0].Extra, "codex_credits_snapshot")
+}
+
 func TestSchedulerCacheKeepsCreditOverage(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

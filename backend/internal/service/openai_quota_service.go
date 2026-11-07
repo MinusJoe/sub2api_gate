@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MACOS-DO/sub4api/internal/pkg/adminaccess"
 	infraerrors "github.com/MACOS-DO/sub4api/internal/pkg/errors"
 	"github.com/imroc/req/v3"
 )
@@ -87,8 +88,11 @@ type OpenAICredits struct {
 }
 
 type openAICreditsSnapshot struct {
-	Credits   *OpenAICredits `json:"credits"`
-	FetchedAt int64          `json:"fetched_at"`
+	Credits         *OpenAICredits `json:"credits"`
+	FetchedAt       int64          `json:"fetched_at"`
+	SourceAccountID int64          `json:"source_account_id,omitempty"`
+	SourceIdentity  string         `json:"source_identity,omitempty"`
+	SourceRevision  string         `json:"source_revision,omitempty"`
 }
 
 // OpenAIQuotaUsage is the typed projection of /wham/usage we expose to the UI.
@@ -105,6 +109,7 @@ type OpenAIQuotaUsage struct {
 	Credits               *OpenAICredits               `json:"credits,omitempty"`
 	FetchedAt             int64                        `json:"fetched_at"`
 	autoResetCandidates   []openAIAutoResetCreditCandidate
+	creditsObservation    *OpenAICreditsObservation
 }
 
 // OpenAIQuotaResetCredit captures the redeemed credit metadata returned by the
@@ -163,7 +168,11 @@ func NewOpenAIQuotaService(
 // QueryUsage fetches the latest rate-limit/usage snapshot for the given OpenAI
 // OAuth account. Returns infraerrors so the handler layer can map them to
 // stable error codes / HTTP statuses.
+type openAICreditsObservationContextKey struct{}
+
 func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error) {
+	observation := &OpenAICreditsObservation{}
+	ctx = context.WithValue(ctx, openAICreditsObservationContextKey{}, observation)
 	accessToken, chatGPTAccountID, proxyURL, fedRAMP, err := s.prepareUpstreamCall(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -212,6 +221,7 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 		break
 	}
 
+	payload.creditsObservation = observation
 	payload.FetchedAt = time.Now().Unix()
 	details := s.queryResetCreditDetails(callCtx, client, accessToken, chatGPTAccountID, fedRAMP, accountID)
 	if details != nil {
@@ -252,12 +262,13 @@ func (s *OpenAIQuotaService) CacheResetCreditsSnapshot(ctx context.Context, acco
 // of reset-credit expiration details. A successful read with absent credits
 // replaces the previous balance with unknown, never with a fabricated zero.
 func (s *OpenAIQuotaService) CacheCreditsSnapshot(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage) error {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, scopedAccountOperation(ctx, "openai.quota.read"), true); err != nil {
+		return err
+	}
 	if usage == nil {
 		return infraerrors.New(http.StatusBadGateway, "OPENAI_QUOTA_EMPTY_USAGE", "openai quota query returned an empty result")
 	}
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
-		openaiQuotaCreditsKey: openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt},
-	}); err != nil {
+	if err := persistOpenAICreditsObservation(ctx, s.accountRepo, accountID, usage, nil); err != nil {
 		return infraerrors.New(http.StatusInternalServerError, "OPENAI_QUOTA_CACHE_WRITE_FAILED", "failed to cache Codex credits").WithCause(err)
 	}
 	return nil
@@ -265,6 +276,9 @@ func (s *OpenAIQuotaService) CacheCreditsSnapshot(ctx context.Context, accountID
 
 // CachePostResetSnapshot persists the credits and usage windows observed after a reset.
 func (s *OpenAIQuotaService) CachePostResetSnapshot(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage) error {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, scopedAccountOperation(ctx, "openai.quota.reset"), true); err != nil {
+		return err
+	}
 	if usage == nil {
 		return s.cacheResetCreditsSnapshot(ctx, accountID, nil, nil)
 	}
@@ -272,16 +286,23 @@ func (s *OpenAIQuotaService) CachePostResetSnapshot(ctx context.Context, account
 	if updates == nil {
 		updates = make(map[string]any)
 	}
-	updates[openaiQuotaCreditsKey] = openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt}
-	return s.cacheResetCreditsSnapshot(
-		ctx,
-		accountID,
-		usage.RateLimitResetCredits,
-		updates,
-	)
+	credits := usage.RateLimitResetCredits
+	if credits != nil && (credits.AvailableCount <= 0 || len(credits.Credits) > 0) {
+		updates[openaiQuotaResetCreditsKey] = credits
+	}
+	if err := persistOpenAICreditsObservation(ctx, s.accountRepo, accountID, usage, updates); err != nil {
+		return err
+	}
+	if _, ok := updates[openaiQuotaResetCreditsKey]; !ok {
+		return infraerrors.New(http.StatusBadGateway, "OPENAI_QUOTA_RESET_CREDITS_REFRESH_FAILED", "reset-credit details unavailable; balance was cached independently")
+	}
+	return nil
 }
 
 func (s *OpenAIQuotaService) cacheResetCreditsSnapshot(ctx context.Context, accountID int64, credits *OpenAIRateLimitResetCredits, updates map[string]any) error {
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, scopedAccountOperation(ctx, "openai.quota.read"), true); err != nil {
+		return err
+	}
 	if credits == nil || (credits.AvailableCount > 0 && len(credits.Credits) == 0) {
 		return infraerrors.New(
 			http.StatusBadGateway,
@@ -358,6 +379,10 @@ func (s *OpenAIQuotaService) ResetCreditTargeted(ctx context.Context, accountID 
 }
 
 func (s *OpenAIQuotaService) resetCredit(ctx context.Context, accountID int64, creditID, redeemRequestID string, targeted bool) (*OpenAIQuotaResetResult, error) {
+	ctx = WithScopedAdminAccountOperation(ctx, "openai.quota.reset")
+	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, "openai.quota.reset", false); err != nil {
+		return nil, err
+	}
 	// Shadow guard: resetting credits via a shadow account would silently
 	// operate on the parent's quota; that is surprising and unwanted. Callers
 	// must reset the parent account directly.
@@ -453,11 +478,19 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	if account == nil {
 		return "", "", "", false, infraerrors.New(http.StatusNotFound, "OPENAI_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
 	}
+	if err := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), true); err != nil {
+		return "", "", "", false, err
+	}
 	if account.Platform != PlatformOpenAI {
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_PLATFORM", "account is not an OpenAI account")
 	}
 	if account.Type != AccountTypeOAuth {
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_TYPE", "account is not an OAuth account")
+	}
+
+	observation, _ := ctx.Value(openAICreditsObservationContextKey{}).(*OpenAICreditsObservation)
+	if observation != nil {
+		observation.Target = cloneOpenAICreditsAccount(account)
 	}
 
 	// Spark shadow accounts do not hold their own credentials; resolve to the
@@ -469,6 +502,9 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 			return "", "", "", false, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_SHADOW_RESOLVE_FAILED", "failed to resolve shadow account: %v", rerr)
 		}
 		account = resolved
+		if err := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), false); err != nil {
+			return "", "", "", false, err
+		}
 	}
 
 	chatGPTAccountID = strings.TrimSpace(account.GetCredential("chatgpt_account_id"))
@@ -480,6 +516,7 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_MISSING_ACCOUNT_ID", "chatgpt_account_id is missing; please re-authorize this account")
 	}
 
+	preparedIdentity := cloneOpenAICreditsAccount(account)
 	if !account.IsOpenAIAgentIdentity() {
 		if s.tokenProvider == nil {
 			return "", "", "", false, infraerrors.New(http.StatusInternalServerError, "OPENAI_QUOTA_NOT_CONFIGURED", "openai quota token provider is not configured")
@@ -491,6 +528,28 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 		if strings.TrimSpace(accessToken) == "" {
 			return "", "", "", false, infraerrors.New(http.StatusBadGateway, "OPENAI_QUOTA_TOKEN_UNAVAILABLE", "access token is empty")
 		}
+	}
+	if observation != nil {
+		// TokenProvider can refresh or replace its local Account. Never label an
+		// old token/workspace request with an identity loaded only after the read.
+		original := preparedIdentity
+		current, loadErr := s.accountRepo.GetByID(ctx, account.ID)
+		if loadErr != nil {
+			return "", "", "", false, loadErr
+		}
+		oldRevision, oldErr := OpenAICreditsRevision(original.Extra)
+		newRevision, newErr := OpenAICreditsRevision(current.Extra)
+		if oldErr != nil || newErr != nil || oldRevision != newRevision || OpenAICreditsIdentity(original) != OpenAICreditsIdentity(current) {
+			return "", "", "", false, ErrOpenAICreditsObservationConflict
+		}
+		if !account.IsOpenAIAgentIdentity() && current.GetCredential("access_token") != "" && accessToken != current.GetCredential("access_token") {
+			return "", "", "", false, ErrOpenAICreditsObservationConflict
+		}
+		observation.Source = cloneOpenAICreditsAccount(current)
+		if observation.Target.ID == current.ID {
+			observation.Target = cloneOpenAICreditsAccount(current)
+		}
+		account = current
 	}
 	fedRAMP = account.IsChatGPTAccountFedRAMP()
 
@@ -521,11 +580,17 @@ func (s *OpenAIQuotaService) recoverAgentIdentityTask(ctx context.Context, accou
 	if err != nil || account == nil {
 		return fmt.Errorf("account is unavailable")
 	}
+	if scopeErr := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), true); scopeErr != nil {
+		return scopeErr
+	}
 	if account.IsShadow() {
 		account, err = resolveCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil || account == nil {
 			return fmt.Errorf("credential account is unavailable")
 		}
+	}
+	if scopeErr := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), false); scopeErr != nil {
+		return scopeErr
 	}
 	if !account.IsOpenAIAgentIdentity() {
 		return nil
@@ -553,10 +618,28 @@ func (s *OpenAIQuotaService) isAgentIdentityAccount(ctx context.Context, account
 func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, accountID int64, accessToken, chatGPTAccountID string, fedRAMP bool) (map[string]string, string, error) {
 	headers := buildCodexCommonHeaders(accessToken, chatGPTAccountID, fedRAMP)
 	if s == nil || s.accountRepo == nil {
+		if adminaccess.RestrictedFromContext(ctx) != nil {
+			return nil, "", infraerrors.NotFound("SCOPED_ACCOUNT_NOT_FOUND", "账户不存在")
+		}
 		return headers, "", nil
 	}
 	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if scopeErr := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), true); scopeErr != nil {
+		return nil, "", scopeErr
+	}
+	if observation, _ := ctx.Value(openAICreditsObservationContextKey{}).(*OpenAICreditsObservation); observation != nil && observation.Source != nil {
+		// The authentication source is fixed for the complete observation,
+		// including optional reset-credit detail reads and agent task recovery.
+		account = cloneOpenAICreditsAccount(observation.Source)
+		err = nil
+		if scopeErr := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), false); scopeErr != nil {
+			return nil, "", scopeErr
+		}
+	}
 	if err != nil || account == nil {
+		if adminaccess.RestrictedFromContext(ctx) != nil {
+			return nil, "", infraerrors.NotFound("SCOPED_ACCOUNT_NOT_FOUND", "账户不存在")
+		}
 		if strings.TrimSpace(accessToken) == "" {
 			return nil, "", fmt.Errorf("agent identity account credentials are unavailable")
 		}
@@ -565,6 +648,11 @@ func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, account
 	if account.IsShadow() {
 		if resolved, resolveErr := resolveCredentialAccount(ctx, s.accountRepo, account); resolveErr == nil && resolved != nil {
 			account = resolved
+			if scopeErr := scopedAccountAccess(ctx, s.accountRepo, account, scopedAccountOperation(ctx, "openai.quota.read"), false); scopeErr != nil {
+				return nil, "", scopeErr
+			}
+		} else if adminaccess.RestrictedFromContext(ctx) != nil {
+			return nil, "", infraerrors.NotFound("SCOPED_ACCOUNT_NOT_FOUND", "账户不存在")
 		} else if strings.TrimSpace(accessToken) == "" {
 			return nil, "", fmt.Errorf("agent identity shadow credentials are unavailable")
 		}
@@ -574,6 +662,9 @@ func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, account
 	}
 	if err := ensureAgentIdentityTaskForAccount(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, account, ""); err != nil {
 		return nil, "", err
+	}
+	if observation, _ := ctx.Value(openAICreditsObservationContextKey{}).(*OpenAICreditsObservation); observation != nil && observation.Source != nil && OpenAICreditsIdentity(account) != OpenAICreditsIdentity(observation.Source) {
+		return nil, "", ErrOpenAICreditsObservationConflict
 	}
 	key, err := agentIdentityKeyFromAccount(account)
 	if err != nil {

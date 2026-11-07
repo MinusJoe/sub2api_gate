@@ -360,7 +360,7 @@ func openAICompactSupportTier(account *Account) int {
 // isOpenAICompatibleAccountEligibleForRequest 判断 OpenAI 兼容账号是否满足本次请求的调度条件。
 // 检查内容包括：平台匹配、账号可用性、quota 自动暂停、spark 路由限制、模型支持及端点能力。
 //
-// 注意：对 spark 影子账号，调用方还须额外调用 parentHealthyForShadow(account, lookup)
+// 注意：对 spark 影子账号，调用方还须额外调用 parentHealthyForShadowWithContext(ctx, account, lookup)
 // 检查母账号凭据可用性；该检查未内置于本函数，以避免注入 DB 依赖。
 func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	return openAICompatibleAccountEligibilityFailureReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability) == ""
@@ -458,6 +458,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return "compact_unsupported"
+	}
+	if vetoed, reason := openAIImageSizeVetoReason(ctx, account); vetoed {
+		return reason
 	}
 	return ""
 }
@@ -995,6 +998,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if _, excluded := excludedIDs[accountID]; excluded {
 		return nil
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, accountID)
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil {
@@ -1013,7 +1017,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
 		return nil
 	}
-	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
+	if !parentHealthyForShadowWithContext(ctx, account, s.parentAccountLookup(ctx)) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1178,6 +1182,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			stickyAccountID = accountID
 		}
 	}
+	ctx = withOpenAIImageSizeStickyAccount(ctx, stickyAccountID)
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
 		account, stickyHit, err := s.selectAccountForModelWithExclusionsStickyHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
 		if err != nil {
@@ -1250,7 +1255,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
+					} else if !parentHealthyForShadowWithContext(ctx, account, s.parentAccountLookup(ctx)) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else {
 						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
@@ -1311,7 +1316,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude(reason)
 			continue
 		}
-		if !parentHealthyForShadow(acc, parentLookupL2) {
+		if !parentHealthyForShadowWithContext(ctx, acc, parentLookupL2) {
 			filterStats.exclude("shadow_parent_unhealthy")
 			continue
 		}
@@ -1590,7 +1595,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, fresh, platform, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
-	if !parentHealthyForShadow(fresh, s.parentAccountLookup(ctx)) {
+	if !parentHealthyForShadowWithContext(ctx, fresh, s.parentAccountLookup(ctx)) {
 		return nil
 	}
 	if s.isOpenAIAccountRequestRuntimeBlockedContext(ctx, fresh, requestedModel, requireCompact) {
@@ -1645,7 +1650,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 		if s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, account) {
 			return nil
 		}
-		if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
+		if !parentHealthyForShadowWithContext(ctx, account, s.parentAccountLookup(ctx)) {
 			return nil
 		}
 		if s.isOpenAIProxyStreamQuarantined(ctx, account) {
@@ -1667,7 +1672,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, latest, platform, requestedModel, requireCompact, requiredCapability) {
 		return nil
 	}
-	if !parentHealthyForShadow(latest, s.parentAccountLookup(ctx)) {
+	if !parentHealthyForShadowWithContext(ctx, latest, s.parentAccountLookup(ctx)) {
 		return nil
 	}
 	if s.isOpenAIAccountRequestRuntimeBlockedContext(ctx, latest, requestedModel, requireCompact) {
