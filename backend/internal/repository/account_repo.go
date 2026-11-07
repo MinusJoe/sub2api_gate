@@ -153,7 +153,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		SetPlatform(account.Platform).
 		SetType(account.Type).
 		SetCredentials(normalizeJSONMap(account.Credentials)).
-		SetExtra(normalizeJSONMap(account.Extra)).
+		SetExtra(service.MergeOpenAICreditsSnapshotExtra(normalizeJSONMap(account.Extra), nil)).
 		SetConcurrency(account.Concurrency).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
@@ -687,7 +687,9 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'opencode_go_usage_snapshot',
 			extra -> 'grok_observed_models',
 			extra -> 'upstream_model_metadata',
-			COALESCE(extra, '{}'::jsonb)
+			COALESCE(extra, '{}'::jsonb) || jsonb_build_object('__credits_identity_row', jsonb_build_object(
+				'platform', platform, 'type', type, 'credentials', credentials,
+				'parent_account_id', parent_account_id, 'quota_dimension', quota_dimension))
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -758,6 +760,34 @@ func lockAndMergeAccountProbeExtra(
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
 	extra = service.MergeOpenAICreditsSnapshotExtra(extra, currentExtra)
+	creditsIdentityUnchanged := identityUnchanged
+	if raw, ok := currentExtra["__credits_identity_row"]; ok {
+		encoded, _ := json.Marshal(raw)
+		var old struct {
+			Platform    string         `json:"platform"`
+			Type        string         `json:"type"`
+			Credentials map[string]any `json:"credentials"`
+			Parent      *int64         `json:"parent_account_id"`
+			Dimension   string         `json:"quota_dimension"`
+		}
+		if json.Unmarshal(encoded, &old) != nil {
+			return nil, service.ErrOpenAICreditsObservationConflict
+		}
+		previous := &service.Account{Platform: old.Platform, Type: old.Type, Credentials: old.Credentials, ParentAccountID: old.Parent, QuotaDimension: old.Dimension}
+		creditsIdentityUnchanged = service.OpenAICreditsIdentity(previous) == service.OpenAICreditsIdentity(account)
+	}
+	delete(extra, "__credits_identity_row")
+	if !creditsIdentityUnchanged && (account.Platform == service.PlatformOpenAI || currentExtra["codex_credits_snapshot"] != nil || currentExtra[service.OpenAICreditsRevisionExtraKey] != nil) {
+		revision, err := service.NextOpenAICreditsRevision(currentExtra)
+		if err != nil {
+			return nil, err
+		}
+		if extra == nil {
+			extra = map[string]any{}
+		}
+		delete(extra, "codex_credits_snapshot")
+		extra[service.OpenAICreditsRevisionExtraKey] = revision
+	}
 	extra = service.MergeOpenAIBPSCredentialStateExtra(account, extra, currentExtra, identityUnchanged)
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
@@ -920,7 +950,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = CASE
+			extra = `+openAICreditsInvalidationSQL(`CASE
 				-- 正确性依赖（非防御）：OpenCode 分支必须先于 Ollama 分支求值。两分支
 				-- 的 WHEN 并不互斥：Ollama 分支的守卫是宽谓词——NOT(ollamaMatch(old)
 				-- AND ollamaMatch(new)) 在旧行不匹配 ollama.com 基址时恒真，且两侧
@@ -982,7 +1012,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
-			END,
+			END`, "$1::jsonb")+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
@@ -2019,7 +2049,7 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.BindGroups(ctx, accountID, groupIDs)
 	}
-	if adminaccess.FromContext(ctx) != nil {
+	if adminaccess.RestrictedFromContext(ctx) != nil {
 		return r.scopedAdminBindGroups(ctx, accountID, groupIDs)
 	}
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
@@ -2843,6 +2873,10 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		return scoped.UpdateExtra(ctx, id, updates)
 	}
 	updates = stripCodexFingerprintSeedFromExtraUpdate(updates)
+	// Balance and revision are writable only through the protected capability.
+	updates = copyJSONMap(updates)
+	delete(updates, "codex_credits_snapshot")
+	delete(updates, service.OpenAICreditsRevisionExtraKey)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -3239,7 +3273,8 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND COALESCE(btrim("+credentialPlaceholder+"::jsonb ->> 'account_mode') <> 'zen', true) IS NOT TRUE")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
+	updates.Extra = service.MergeOpenAICreditsSnapshotExtra(updates.Extra, nil)
+	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed || credentialPlaceholder != "" {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -3321,6 +3356,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 		if updates.EnsureCodexFingerprintSeed {
 			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		}
+		if credentialPlaceholder != "" {
+			extraExpression = openAICreditsInvalidationSQL(extraExpression, "(COALESCE(credentials, '{}'::jsonb) || "+credentialPlaceholder+"::jsonb)")
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}

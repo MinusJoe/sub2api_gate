@@ -210,6 +210,10 @@ func (r *autoResetTestAccountRepo) UpdateExtra(_ context.Context, id int64, upda
 	return nil
 }
 
+func (r *autoResetTestAccountRepo) UpdateOpenAICreditsSnapshot(ctx context.Context, observation OpenAICreditsObservation, updates map[string]any) error {
+	return r.UpdateExtra(ctx, observation.Target.ID, updates)
+}
+
 type autoResetTestQuota struct {
 	usage        *OpenAIQuotaUsage
 	resetCalls   atomic.Int32
@@ -223,12 +227,15 @@ type autoResetTestQuota struct {
 	queryErr     error
 }
 
-func (q *autoResetTestQuota) QueryUsage(context.Context, int64) (*OpenAIQuotaUsage, error) {
+func (q *autoResetTestQuota) QueryUsage(_ context.Context, id int64) (*OpenAIQuotaUsage, error) {
 	q.queryCalls.Add(1)
 	if q.queryErr != nil {
 		return nil, q.queryErr
 	}
 	copy := *q.usage
+	if copy.creditsObservation == nil {
+		copy.creditsObservation = &OpenAICreditsObservation{Target: &Account{ID: id}, Source: &Account{ID: id}}
+	}
 	return &copy, nil
 }
 

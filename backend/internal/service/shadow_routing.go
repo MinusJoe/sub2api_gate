@@ -1,5 +1,11 @@
 package service
 
+import (
+	"context"
+	"maps"
+	"time"
+)
+
 // parentHealthyForShadow 报告 spark 影子账号的母账号凭据是否可用(影子据此可被调度)。
 //
 // 非影子账号直接返回 true（不受此检查约束）。
@@ -14,6 +20,10 @@ package service
 // 母账号 global 429 不得连坐 spark 影子,否则会重新耦合影子架构本应解耦的两条 429 道。
 // 母账号未找到(nil)、非 OpenAI OAuth、或凭据不可用时影子被挡。
 func parentHealthyForShadow(account *Account, lookup func(int64) *Account) bool {
+	return parentHealthyForShadowWithContext(context.Background(), account, lookup)
+}
+
+func parentHealthyForShadowWithContext(ctx context.Context, account *Account, lookup func(int64) *Account) bool {
 	if account == nil || !account.IsShadow() {
 		return true
 	}
@@ -21,7 +31,24 @@ func parentHealthyForShadow(account *Account, lookup func(int64) *Account) bool 
 	if parent == nil {
 		return false
 	}
-	return parent.IsOpenAIOAuth() && parent.IsCredentialUsableForShadow()
+	if !parent.IsOpenAIOAuth() || !parent.IsCredentialUsableForShadow() {
+		return false
+	}
+	// Check source binding only when this request actually needs the balance
+	// exemption. Ordinary below-threshold Spark traffic remains independent.
+	if resolveOpenAICreditOverage(account, time.Now()).Allowed {
+		withoutBalance := *account
+		withoutBalance.Extra = maps.Clone(account.Extra)
+		delete(withoutBalance.Extra, OpenAICreditOverageExtraKey)
+		if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, &withoutBalance); paused {
+			snapshot, _ := openAICreditSnapshotFromExtra(account.Extra)
+			revision, err := OpenAICreditsRevision(parent.Extra)
+			if err != nil || snapshot.SourceAccountID != parent.ID || snapshot.SourceIdentity != OpenAICreditsIdentity(parent) || snapshot.SourceRevision != revision {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // sparkModelVariants 返回所有归一到 spark 的模型 ID（当前仅 base：spark 无 effort 变体）。

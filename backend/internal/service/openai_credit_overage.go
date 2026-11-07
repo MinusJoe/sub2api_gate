@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -95,6 +98,13 @@ func resolveOpenAICreditOverage(account *Account, now time.Time) openAICreditOve
 func MergeOpenAICreditsSnapshotExtra(extra, current map[string]any) map[string]any {
 	result := maps.Clone(extra)
 	delete(result, openaiQuotaCreditsKey)
+	delete(result, OpenAICreditsRevisionExtraKey)
+	if revision, ok := current[OpenAICreditsRevisionExtraKey]; ok {
+		if result == nil {
+			result = make(map[string]any)
+		}
+		result[OpenAICreditsRevisionExtraKey] = revision
+	}
 	if value, ok := current[openaiQuotaCreditsKey]; ok {
 		if result == nil {
 			result = make(map[string]any)
@@ -102,6 +112,108 @@ func MergeOpenAICreditsSnapshotExtra(extra, current map[string]any) map[string]a
 		result[openaiQuotaCreditsKey] = value
 	}
 	return result
+}
+
+const OpenAICreditsRevisionExtraKey = "codex_credits_revision"
+
+var ErrOpenAICreditsObservationConflict = errors.New("openai credits observation is no longer current")
+
+// OpenAICreditsObservation is captured before the upstream read, never decoded
+// from a management request. Repositories must compare it under database locks.
+type OpenAICreditsObservation struct {
+	Target *Account
+	Source *Account
+}
+
+type OpenAICreditsSnapshotRepository interface {
+	UpdateOpenAICreditsSnapshot(context.Context, OpenAICreditsObservation, map[string]any) error
+}
+
+func OpenAICreditsRevision(extra map[string]any) (string, error) {
+	raw, exists := extra[OpenAICreditsRevisionExtraKey]
+	if !exists {
+		return "0", nil
+	}
+	value, ok := raw.(string)
+	if !ok || value == "" || (len(value) > 1 && value[0] == '0') {
+		return "", ErrOpenAICreditsObservationConflict
+	}
+	for _, c := range value {
+		if c < '0' || c > '9' {
+			return "", ErrOpenAICreditsObservationConflict
+		}
+	}
+	return value, nil
+}
+
+func NextOpenAICreditsRevision(extra map[string]any) (string, error) {
+	revision, err := OpenAICreditsRevision(extra)
+	if err != nil {
+		return "", err
+	}
+	n, _ := new(big.Int).SetString(revision, 10)
+	return n.Add(n, big.NewInt(1)).String(), nil
+}
+
+// Stable user/workspace identifiers survive ordinary OAuth token rotation.
+// Without a stable user identity, credential changes conservatively invalidate.
+func OpenAICreditsIdentity(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	workspace := strings.TrimSpace(account.GetCredential("chatgpt_account_id"))
+	if workspace == "" {
+		workspace = strings.TrimSpace(account.GetCredential("organization_id"))
+	}
+	user := strings.TrimSpace(account.GetCredential("chatgpt_user_id"))
+	identity := map[string]any{"platform": account.Platform, "type": account.Type, "workspace": workspace, "parent": account.ParentAccountID, "dimension": account.QuotaDimensionOrDefault(), "auth_mode": strings.ToLower(strings.TrimSpace(account.GetCredential("auth_mode")))}
+	if account.IsOpenAIAgentIdentity() {
+		identity["agent_private_key"] = account.GetCredential("agent_private_key")
+		identity["agent_runtime_id"] = account.GetCredential("agent_runtime_id")
+	} else if workspace != "" && user != "" {
+		identity["user"] = user
+	} else {
+		identity["credentials"] = account.Credentials
+	}
+	encoded, _ := json.Marshal(identity)
+	return fmt.Sprintf("%x", sha256.Sum256(encoded))
+}
+
+func cloneOpenAICreditsAccount(account *Account) *Account {
+	if account == nil {
+		return nil
+	}
+	copy := *account
+	copy.Credentials = maps.Clone(account.Credentials)
+	copy.Extra = maps.Clone(account.Extra)
+	if account.ParentAccountID != nil {
+		id := *account.ParentAccountID
+		copy.ParentAccountID = &id
+	}
+	return &copy
+}
+
+func persistOpenAICreditsObservation(ctx context.Context, repo AccountRepository, accountID int64, usage *OpenAIQuotaUsage, updates map[string]any) error {
+	if usage == nil || usage.creditsObservation == nil || usage.creditsObservation.Target == nil || usage.creditsObservation.Source == nil || usage.creditsObservation.Target.ID != accountID {
+		return ErrOpenAICreditsObservationConflict
+	}
+	writer, ok := repo.(OpenAICreditsSnapshotRepository)
+	if !ok {
+		return fmt.Errorf("openai credits repository does not support protected writes")
+	}
+	updates = maps.Clone(updates)
+	if updates == nil {
+		updates = map[string]any{}
+	}
+	delete(updates, OpenAICreditsRevisionExtraKey)
+	snapshot := openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt}
+	if source := usage.creditsObservation.Source; usage.creditsObservation.Target.ID != source.ID {
+		snapshot.SourceAccountID = source.ID
+		snapshot.SourceIdentity = OpenAICreditsIdentity(source)
+		snapshot.SourceRevision, _ = OpenAICreditsRevision(source.Extra)
+	}
+	updates[openaiQuotaCreditsKey] = snapshot
+	return writer.UpdateOpenAICreditsSnapshot(ctx, *usage.creditsObservation, updates)
 }
 
 func openAICreditOverageRefreshEnabled(account *Account) bool {
@@ -150,9 +262,7 @@ func (s *OpenAIQuotaAutoResetService) refreshOverageCredits(ctx context.Context,
 	if usage == nil {
 		return fmt.Errorf("openai credit refresh returned empty usage")
 	}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-		openaiQuotaCreditsKey: openAICreditsSnapshot{Credits: usage.Credits, FetchedAt: usage.FetchedAt},
-	}); err != nil {
+	if err := persistOpenAICreditsObservation(ctx, s.accountRepo, account.ID, usage, nil); err != nil {
 		return err
 	}
 	s.creditRefreshRetryAt.Delete(account.ID)
@@ -221,5 +331,8 @@ func openAICreditSnapshotFromMap(raw map[string]any) (openAICreditsSnapshot, boo
 		credits.Balance = &value
 	}
 	fetchedAt, _ := resolveAccountExtraNumber(raw, "fetched_at")
-	return openAICreditsSnapshot{Credits: credits, FetchedAt: int64(fetchedAt)}, true
+	sourceID, _ := resolveAccountExtraNumber(raw, "source_account_id")
+	sourceIdentity, _ := raw["source_identity"].(string)
+	sourceRevision, _ := raw["source_revision"].(string)
+	return openAICreditsSnapshot{Credits: credits, FetchedAt: int64(fetchedAt), SourceAccountID: int64(sourceID), SourceIdentity: sourceIdentity, SourceRevision: sourceRevision}, true
 }

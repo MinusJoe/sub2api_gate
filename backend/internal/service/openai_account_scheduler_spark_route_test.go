@@ -16,7 +16,12 @@ func TestSparkRoutingByModel(t *testing.T) {
 	sparkCreds := map[string]any{"model_mapping": defaultSparkShadowModelMapping()}
 
 	newScheduler := func(snapshot map[int64]*Account) *defaultOpenAIAccountScheduler {
+		accounts := make([]Account, 0, len(snapshot))
+		for _, account := range snapshot {
+			accounts = append(accounts, *account)
+		}
 		return &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{
+			accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts},
 			schedulerSnapshot: &SchedulerSnapshotService{
 				cache: &openAISnapshotCacheStub{accountsByID: snapshot},
 			},
@@ -69,8 +74,8 @@ func TestSparkRoutingByModel(t *testing.T) {
 // 调度器拒绝」这一联动在调度器层面端到端生效。
 //
 // 使用的接缝：defaultOpenAIAccountScheduler.isAccountRequestCompatible，它通过
-// s.service.schedulerSnapshot.GetAccount(ctx, parentID) 解析母账号；
-// openAISnapshotCacheStub.accountsByID 提供对应的测试桩。
+// s.service.accountRepo.GetByID(ctx, parentID) 读取母账号当前状态；
+// 快照不能代替凭据来源的实时校验。
 func TestParentHealthSchedulerIntegration(t *testing.T) {
 	ctx := context.Background()
 	pid := int64(78100)
@@ -98,6 +103,7 @@ func TestParentHealthSchedulerIntegration(t *testing.T) {
 		}
 		snapshotSvc := &SchedulerSnapshotService{cache: snapshotCache}
 		svc := &OpenAIGatewayService{
+			accountRepo:       schedulerTestOpenAIAccountRepo{accounts: []Account{*parent}},
 			schedulerSnapshot: snapshotSvc,
 			cfg:               &config.Config{},
 		}
