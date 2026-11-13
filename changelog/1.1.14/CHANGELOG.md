@@ -2,6 +2,8 @@
 
 ## 更新内容
 
+- Go 构建工具链更新至 1.27.4，修复标准库 HTTP/1 请求处理竞态漏洞 GO-2026-6859。
+
 - 对齐 Wei-Shaw/sub2api v0.2.21（`10ba8f9b4dc2e6023d4a9879ab77b21841babd10`），保留 Kimi、BPS、菜单、请求时区、配额调度与 credits CAS 定制。
 - 新增 Claude Fable 5.2 / Mythos 5.2 模型、预设、Bedrock 映射和兜底定价，Claude Code 版本基线更新至 2.1.321。
 - OpenAI 缓存写入区分 30m / 12h，贯穿用量解析、渠道及账号统计价卡、计费、落库和管理员用量详情；本项目 BPS 路径同步支持 TTL。已有通用缓存写入价格保持原有语义。
