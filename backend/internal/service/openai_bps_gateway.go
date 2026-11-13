@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // WriteOpenAIBPSError preserves an already-started SSE stream's protocol.
@@ -226,7 +227,12 @@ func bpsReadUsage(response map[string]any) OpenAIUsage {
 		} `json:"input_tokens_details"`
 	}
 	_ = json.Unmarshal(data, &usage)
-	return OpenAIUsage{InputTokens: usage.Input, OutputTokens: usage.Output, CacheReadInputTokens: usage.Details.Cached, CacheCreationInputTokens: usage.Details.Written}
+	cache30m, cache12h := openAICacheCreationTTLTokensFromUsage(gjson.ParseBytes(data), usage.Details.Written)
+	return OpenAIUsage{
+		InputTokens: usage.Input, OutputTokens: usage.Output,
+		CacheReadInputTokens: usage.Details.Cached, CacheCreationInputTokens: usage.Details.Written,
+		CacheCreation30mInputTokens: cache30m, CacheCreation12hInputTokens: cache12h,
+	}
 }
 
 func (s *OpenAIGatewayService) forwardOpenAIBPS(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, err error) {

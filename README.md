@@ -24,9 +24,11 @@ Sub4API 基于 sub2api 二次开发，完全兼容 sub2api，并会持续同步�
 
 ## 开发分支
 
-`dev` 基于 `MACOS-DO/sub4api` v1.1.11（`fd6790fd0`）和 `Wei-Shaw/sub2api` v0.2.18（`ac1b8f127`）重新三方合并。额外保留当前侧栏菜单精简，在使用记录的延迟列显示缓存读取占比，并接入分组级 OpenAI 档位策略及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)。
+`dev` 已增量对齐 `Wei-Shaw/sub2api` v0.2.21（`10ba8f9b4`），本项目版本为 1.1.14。保留 Sub4API 定制、侧栏菜单、使用记录缓存读取占比、分组级 OpenAI 档位策略、BPS 及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)，升级说明见 [1.1.14 更新日志](changelog/1.1.14/CHANGELOG.md)。
 
 开发镜像为 `ghcr.io/minusjoe/sub2api_gate:dev`，由现有 Dev image 工作流构建并检查两种架构启动后更新。
+
+Codex 原生图片请求的 HTTP 状态与代理超时配置见 [图片接口说明](docs/OPENAI_IMAGES_CODEX.md)。图片的 `output_format` / `output_compression` 是否生效取决于上游；保存前应核验返回格式和实际内容，使用匹配的扩展名与 MIME。格式不符的成功响应仍可能计费，自动重试可能产生额外费用。
 
 ## 相比 sub2api 的主要改进
 
