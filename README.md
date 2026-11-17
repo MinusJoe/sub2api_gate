@@ -24,7 +24,7 @@ Sub4API 基于 sub2api 二次开发，完全兼容 sub2api，并会持续同步�
 
 ## 开发分支
 
-`dev` 已增量对齐 `Wei-Shaw/sub2api` v0.2.21（`10ba8f9b4`），本项目版本为 1.1.14。保留 Sub4API 定制、侧栏菜单、使用记录缓存读取占比、分组级 OpenAI 档位策略、BPS 及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)，升级说明见 [1.1.14 更新日志](changelog/1.1.14/CHANGELOG.md)。
+当前源码已增量对齐 `Wei-Shaw/sub2api` v0.2.22（`b0fa9f3e6`），本项目版本为 1.1.15。保留 Sub4API 定制、侧栏菜单、使用记录缓存读取占比、分组级 OpenAI 档位策略、BPS 及 [Kimi Code OAuth](docs/kimi-oauth.md)。版本来源与冲突处理记录见 [.github/upstream-sync.json](.github/upstream-sync.json)，升级说明见 [1.1.15 更新日志](changelog/1.1.15/CHANGELOG.md)。
 
 开发镜像为 `ghcr.io/minusjoe/sub2api_gate:dev`，由现有 Dev image 工作流构建并检查两种架构启动后更新。
 

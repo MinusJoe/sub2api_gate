@@ -173,7 +173,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			reqStream = false
 		}
 
-		accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))
 		if scopeErr != nil {
 			return nil, scopeErr
 		}
@@ -676,6 +676,14 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("user-agent", CodexCanonicalUserAgent())
 	}
 	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+
+	// Language normalization: same policy as the non-passthrough path (rewrite only
+	// when the client already sent accept-language, so no extra outbound signal appears).
+	// 归一值来自 openAIAcceptLanguageOverride：显式 gateway.openai_accept_language 优先，
+	// 其次出口区域预设，两者都为空则不改写。
+	if s != nil && s.cfg != nil && account != nil && account.UsesOpenAICodexProtocol() {
+		normalizeOpenAIAcceptLanguage(req.Header, s.openAIAcceptLanguageOverride())
+	}
 
 	// 指纹收敛：使用 forwardOpenAIPassthrough 中预计算的收敛 ID 改写出站头，
 	// 与请求体 client_metadata 共享同一份 IDs（与非透传路径相同的相对位置：
@@ -1562,6 +1570,33 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 	)
 }
 
+// OpenAIStreamFailedFrame is the in-stream failed or error frame behind a
+// failover, kept so an exhausted failover can still apply the error
+// passthrough rules that would have matched the frame.
+type OpenAIStreamFailedFrame struct {
+	Platform string
+	Payload  []byte
+	Message  string
+}
+
+// ApplyOpenAIStreamFailedFrameRule applies the error passthrough rules to the
+// frame that triggered an exhausted failover, matching it the way
+// applyOpenAIStreamFailedErrorPassthroughRule does for an in-band frame.
+func ApplyOpenAIStreamFailedFrameRule(c *gin.Context, failoverErr *UpstreamFailoverError) (status int, errType string, errMsg string, matched bool) {
+	if failoverErr == nil || failoverErr.StreamFailedFrame == nil {
+		return 0, "", "", false
+	}
+	frame := failoverErr.StreamFailedFrame
+	status, errType, errMsg, matched = applyOpenAIStreamFailedErrorPassthroughRule(c, frame.Platform, frame.Payload, frame.Message)
+	if !matched {
+		return 0, "", "", false
+	}
+	if errMsg == "" {
+		errMsg = frame.Message
+	}
+	return status, errType, errMsg, true
+}
+
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false
@@ -1797,6 +1832,9 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
+	if len(payload) > 0 && account != nil {
+		failoverErr.StreamFailedFrame = &OpenAIStreamFailedFrame{Platform: account.Platform, Payload: payload, Message: message}
+	}
 	if failoverErr.IsCredentialFailure() || failoverErr.RequestScopedTransient {
 		return failoverErr
 	}

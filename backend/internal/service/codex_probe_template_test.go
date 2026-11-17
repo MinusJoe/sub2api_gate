@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -202,24 +201,23 @@ func TestCodexProbeInvalidTemplateDoesNotHarvestOrBlockOrdinaryRequests(t *testi
 	require.Equal(t, "template_invalid", result.ReasonCode)
 	require.Nil(t, result.HTTPStatus)
 	require.Len(t, history.attempts, 1)
-	require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", http.Header{}))
 }
 
-func TestCodexTicketAllowWithoutTicketPrecedenceAndInjection(t *testing.T) {
+func TestCodexTicketLegacyPolicyDoesNotBlockAndKeepsInjection(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		failClosed bool
 		global     string
 		account    *bool
-		allow      bool
 	}{
-		{"default allow", false, "", nil, true},
-		{"explicit config deny", true, "", nil, false},
-		{"saved global deny", false, "false", nil, false},
-		{"saved global allow", true, "true", nil, true},
-		{"account deny", false, "true", new(false), false},
-		{"account allow", true, "false", new(true), true},
+		{"default allow", false, "", nil},
+		{"explicit config deny", true, "", nil},
+		{"saved global deny", false, "false", nil},
+		{"saved global allow", true, "true", nil},
+		{"account deny", false, "true", new(false)},
+		{"account allow", true, "false", new(true)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &codexPolicyMigrationRepoStub{values: map[string]string{SettingKeyOpenAICodexTicketAllowWithoutTicket: test.global}}
@@ -230,9 +228,9 @@ func TestCodexTicketAllowWithoutTicketPrecedenceAndInjection(t *testing.T) {
 			if test.account != nil {
 				account.Extra["codex_allow_without_ticket"] = *test.account
 			}
-			require.Equal(t, !test.allow, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 			err := svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", http.Header{})
-			require.Equal(t, !test.allow, errors.Is(err, ErrOpenAICodexTicketUnavailable))
+			require.NoError(t, err)
 			account.Extra[openAICodexTicketExtraKey("gpt-6-astra")] = verifiedTicket(account, "gpt-6-astra", "test-ticket", "session=test")
 			headers := http.Header{}
 			require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))

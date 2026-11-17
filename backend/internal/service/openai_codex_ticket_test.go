@@ -43,7 +43,7 @@ func TestCodexTicketLegacyLengthOnlyIsNotReusable(t *testing.T) {
 	}}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
 	headers := http.Header{}
-	require.ErrorIs(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers), ErrOpenAICodexTicketUnavailable)
+	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
 	require.Empty(t, headers.Get(openAICodexTurnStateHeader))
 }
 
@@ -86,5 +86,5 @@ func TestCodexTicketIsolationByRawModel(t *testing.T) {
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-5.5", oldModelHeaders))
 	require.Empty(t, oldModelHeaders.Get(openAICodexTurnStateHeader))
 	other := ticketTestAccount(42)
-	require.ErrorIs(t, svc.applyOpenAICodexTicket(context.Background(), other, "gpt-6-astra", http.Header{}), ErrOpenAICodexTicketUnavailable)
+	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), other, "gpt-6-astra", http.Header{}))
 }

@@ -322,7 +322,6 @@ func (s *OpenAIGatewayService) ManualCodexTicketHarvest(ctx context.Context, acc
 	}
 	cfg := s.openAICodexTicketConfig()
 	cfg.Enabled = s.openAICodexTicketEnabledContext(ctx)
-	cfg.FailClosed = !s.openAICodexAllowsWithoutTicket(ctx, nil, "")
 	status := OpenAICodexTicketStatuses(account, cfg, time.Now())
 	for _, item := range status {
 		if item.Model == model {
@@ -354,7 +353,6 @@ func (s *OpenAIGatewayService) CodexTicketHistory(ctx context.Context, accountID
 	}
 	cfg := s.openAICodexTicketConfig()
 	cfg.Enabled = s.openAICodexTicketEnabledContext(ctx)
-	cfg.FailClosed = !s.openAICodexAllowsWithoutTicket(ctx, nil, "")
 	for _, status := range OpenAICodexTicketStatuses(account, cfg, time.Now()) {
 		if status.Model == model {
 			empty = status

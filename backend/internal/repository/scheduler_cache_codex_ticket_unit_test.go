@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
+func TestSchedulerCacheCodexTicketProjectionAndLegacyCompatibility(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)
 	account := service.Account{
@@ -50,6 +50,8 @@ func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
 	require.Contains(t, full.Extra, "codex_turn_ticket:gpt-5.6-sol")
 
 	for _, extra := range []map[string]any{
+		nil,
+		{},
 		{"codex_allow_without_ticket": false},
 		{"codex_allow_without_ticket": false, service.CodexTicketReadyModelsExtraKey: map[string]bool{"gpt-5.6-sol": true}},
 		{"codex_allow_without_ticket": false, "codex_ticket_harvest_enabled": true, service.CodexTicketReadyModelsExtraKey: map[string]bool{}},
@@ -59,12 +61,15 @@ func TestSchedulerCacheCodexTicketProjectionAndLegacyRebuild(t *testing.T) {
 		raw, err := json.Marshal(legacy)
 		require.NoError(t, err)
 		require.NoError(t, cache.rdb.Set(ctx, schedulerAccountMetaKey("991"), raw, 0).Err())
-		// Direct legacy writes do not advance 0.2.18's metadata revision. Simulate
-		// a cold read (or expired process-local memo) when checking old projections.
+		// Legacy metadata may lack fork-specific ticket fields. It remains a valid
+		// upstream scheduler snapshot and must not force a database rebuild.
 		cache.dropSnapshotEntry(bucket.String())
-		_, hit, err = cache.GetSnapshot(ctx, bucket)
+		legacySnapshot, hit, err := cache.GetSnapshot(ctx, bucket)
 		require.NoError(t, err)
-		require.False(t, hit, "old metadata must cause DB fallback and republish")
+		require.True(t, hit, "ticket metadata is not required for a scheduler cache hit")
+		require.Len(t, legacySnapshot, 1)
+		require.Equal(t, account.ID, legacySnapshot[0].ID)
+		require.True(t, legacySnapshot[0].SchedulerTicketProjection)
 	}
 
 	delete(account.Extra, "codex_turn_ticket:gpt-5.6-sol")

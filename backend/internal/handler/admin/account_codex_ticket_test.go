@@ -25,7 +25,7 @@ func TestAccountResponseCodexTicketsUsesConfiguredPolicy(t *testing.T) {
 	require.True(t, status[0].HarvestEnabled)
 	require.False(t, status[0].Blocked)
 	h.cfg.Gateway.OpenAICodexTicket.FailClosed = true
-	require.True(t, h.accountResponseFromService(account).CodexTurnTickets[0].Blocked)
+	require.False(t, h.accountResponseFromService(account).CodexTurnTickets[0].Blocked, "legacy fail_closed must not advertise a removed admission block")
 }
 
 func TestAccountResponseCodexTicketsReadsLiveSettingsAfterRestart(t *testing.T) {

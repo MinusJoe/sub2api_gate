@@ -1332,8 +1332,9 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       openai_codex_ticket_prompt_template: customTemplate,
-      openai_codex_ticket_allow_without_ticket: true,
     }));
+    expect(wrapper.find('#codex-ticket-allow-without').exists()).toBe(false);
+    expect(updateSettings.mock.lastCall?.[0]).not.toHaveProperty("openai_codex_ticket_allow_without_ticket");
     expect(updateSettings.mock.lastCall?.[0]).not.toHaveProperty("openai_codex_ticket_prompt_template_default");
     await wrapper.get('[data-testid="codex-probe-template-reset"]').trigger("click");
     expect((editor.element as HTMLTextAreaElement).value).toBe(defaultTemplate);

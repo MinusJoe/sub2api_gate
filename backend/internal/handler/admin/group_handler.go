@@ -269,6 +269,7 @@ type CreateGroupRequest struct {
 	ForcedServiceTier     string `json:"forced_service_tier"`
 	// ForceOpenAIFast 是已弃用的兼容字段；优先使用 ForcedServiceTier。
 	ForceOpenAIFast             *bool                                     `json:"force_openai_fast"`
+	ForceOpenAIUltrafast        bool                                      `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              bool                                      `json:"free_openai_fast"`
 	FreeOpenAIUltrafast         bool                                      `json:"free_openai_ultrafast"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
@@ -349,6 +350,7 @@ type UpdateGroupRequest struct {
 	ForcedServiceTier     *string `json:"forced_service_tier"`
 	// ForceOpenAIFast 是已弃用的兼容字段；优先使用 ForcedServiceTier。
 	ForceOpenAIFast             *bool                                      `json:"force_openai_fast"`
+	ForceOpenAIUltrafast        *bool                                      `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              *bool                                      `json:"free_openai_fast"`
 	FreeOpenAIUltrafast         *bool                                      `json:"free_openai_ultrafast"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
@@ -753,6 +755,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		AllowLive:                       req.AllowLive,
 		ForcedServiceTier:               resolveCreateForcedServiceTier(req.ForcedServiceTier, req.ForceOpenAIFast),
+		ForceOpenAIUltrafast:            req.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  req.FreeOpenAIFast,
 		FreeOpenAIUltrafast:             req.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,
@@ -902,6 +905,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		AllowMessagesDispatch:           req.AllowMessagesDispatch,
 		AllowLive:                       req.AllowLive,
 		ForcedServiceTier:               resolveUpdateForcedServiceTier(req.ForcedServiceTier, req.ForceOpenAIFast),
+		ForceOpenAIUltrafast:            req.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  req.FreeOpenAIFast,
 		FreeOpenAIUltrafast:             req.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                req.RequireOAuthOnly,

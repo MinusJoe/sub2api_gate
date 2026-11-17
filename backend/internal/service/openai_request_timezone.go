@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	_ "time/tzdata"
 
@@ -13,6 +14,35 @@ import (
 
 const DefaultOpenAIRequestTimezone = "Asia/Singapore"
 const openAIRequestTimezoneExtraKey = "openai_request_timezone"
+
+// openAIRequestTimezoneDefault 是进程级默认时区（gateway.openai_default_timezone /
+// 出口区域预设给出的默认值），只给没有账号级 extra 的账号兜底。
+// 未配置时等于内置常量 DefaultOpenAIRequestTimezone，即与改动前完全一致。
+// 热路径只读，故用 atomic.Value 存字符串快照。
+var openAIRequestTimezoneDefault = func() *atomic.Value {
+	v := &atomic.Value{}
+	v.Store(DefaultOpenAIRequestTimezone)
+	return v
+}()
+
+// SetDefaultOpenAIRequestTimezone 发布进程级默认时区。
+// 与账号级 extra 走同一份白名单判定：非法值（含空串）一律忽略并回落内置默认，
+// 不允许把未经校验的字符串写进上游请求体。
+func SetDefaultOpenAIRequestTimezone(tz string) {
+	tz = strings.TrimSpace(tz)
+	if !isAllowedOpenAIRequestTimezone(tz) {
+		tz = DefaultOpenAIRequestTimezone
+	}
+	openAIRequestTimezoneDefault.Store(tz)
+}
+
+// DefaultOpenAIRequestTimezoneResolved 返回当前生效的进程级默认时区。
+func DefaultOpenAIRequestTimezoneResolved() string {
+	if tz, ok := openAIRequestTimezoneDefault.Load().(string); ok && tz != "" {
+		return tz
+	}
+	return DefaultOpenAIRequestTimezone
+}
 
 //go:embed openai_request_timezones.txt
 var openAIRequestTimezoneNames string
@@ -58,11 +88,14 @@ func isAllowedOpenAIRequestTimezone(name string) bool {
 	return err == nil
 }
 
+// OpenAIRequestTimezone 返回该账号出站请求体应使用的 IANA 时区。
+// 优先级：账号 extra 显式配置 > 进程级默认时区（gateway.openai_default_timezone /
+// 出口区域预设） > 内置常量 DefaultOpenAIRequestTimezone。
 func (account *Account) OpenAIRequestTimezone() string {
 	if account != nil && account.IsOpenAI() {
 		if name := account.getExtraString(openAIRequestTimezoneExtraKey); isAllowedOpenAIRequestTimezone(name) {
 			return name
 		}
 	}
-	return DefaultOpenAIRequestTimezone
+	return DefaultOpenAIRequestTimezoneResolved()
 }

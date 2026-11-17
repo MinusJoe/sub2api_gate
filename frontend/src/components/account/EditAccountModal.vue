@@ -2030,6 +2030,7 @@
           </div>
           <button
             type="button"
+            data-testid="edit-openai-passthrough-toggle"
             @click="openaiPassthroughEnabled = !openaiPassthroughEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -2044,6 +2045,20 @@
             />
           </button>
         </div>
+        <label v-if="openaiPassthroughEnabled" class="mt-3 flex items-start gap-2">
+          <input
+            v-model="openaiPassthroughModelFilterEnabled"
+            type="checkbox"
+            data-testid="edit-openai-passthrough-model-filter"
+            class="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          <span class="text-sm">
+            {{ t('admin.accounts.openai.passthroughModelFilter') }}
+            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.passthroughModelFilterDesc') }}
+            </span>
+          </span>
+        </label>
       </div>
 
       <OpenAIRequestTimezoneField
@@ -2629,15 +2644,6 @@
         </div>
       </div>
 
-      <div v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && !isSparkShadow" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label" for="codex-ticket-account-policy">{{ t('admin.accounts.openai.codexTicketAccountPolicy') }}</label>
-        <select id="codex-ticket-account-policy" v-model="codexTicketAccountPolicy" class="input" data-testid="codex-ticket-account-policy">
-          <option value="inherit">{{ t('admin.accounts.openai.codexTicketPolicyInherit') }}</option>
-          <option value="allow">{{ t('admin.accounts.openai.codexTicketPolicyAllow') }}</option>
-          <option value="deny">{{ t('admin.accounts.openai.codexTicketPolicyDeny') }}</option>
-        </select>
-        <p class="input-hint">{{ t('admin.accounts.openai.codexTicketAccountPolicyDesc') }}</p>
-      </div>
 
       <div v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && codexTurnTickets.length" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="flex items-center justify-between gap-3"><label class="input-label mb-0">{{ t('admin.accounts.openai.codexTicketHistory') }}</label><button type="button" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400" @click="emit('codex-tickets')">{{ t('admin.accounts.openai.codexTicketHistory') }} →</button></div>
@@ -4214,6 +4220,7 @@ const customBaseUrl = ref('')
 const openaiPassthroughEnabled = ref(false)
 const openAIRequestTimezone = ref('Asia/Singapore')
 const openAIRequestTimezoneMode = ref<OpenAIRequestTimezoneMode>('fixed')
+const openaiPassthroughModelFilterEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -4228,8 +4235,6 @@ const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TI
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
-type CodexTicketAccountPolicy = 'inherit' | 'allow' | 'deny'
-const codexTicketAccountPolicy = ref<CodexTicketAccountPolicy>('inherit')
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -4457,7 +4462,7 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
   return 'auto'
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  props.account?.platform === 'openai' && openaiPassthroughEnabled.value
+  props.account?.platform === 'openai' && openaiPassthroughEnabled.value && !openaiPassthroughModelFilterEnabled.value
 )
 const openAIResponsesStatusKey = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
@@ -4635,7 +4640,7 @@ const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
 const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>) => {
-  const shouldApplyModelMapping = !openaiPassthroughEnabled.value
+  const shouldApplyModelMapping = !isOpenAIModelRestrictionDisabled.value
 
   if (shouldApplyModelMapping) {
     const modelMapping = buildModelRestrictionMapping()
@@ -4727,6 +4732,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiPassthroughEnabled.value = false
   openAIRequestTimezone.value = 'Asia/Singapore'
   openAIRequestTimezoneMode.value = 'fixed'
+  openaiPassthroughModelFilterEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -4738,7 +4744,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
-  codexTicketAccountPolicy.value = 'inherit'
   codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
@@ -4749,6 +4754,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     openAIRequestTimezone.value = typeof extra?.openai_request_timezone === 'string' ? extra.openai_request_timezone : 'Asia/Singapore'
     // 未设置模式的存量账号保持固定时区。
     openAIRequestTimezoneMode.value = extra?.openai_request_timezone_mode === 'follow_proxy' ? 'follow_proxy' : 'fixed'
+    openaiPassthroughModelFilterEnabled.value = extra?.openai_passthrough_model_filter === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -4790,7 +4796,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       defaultMode: OPENAI_WS_MODE_OFF
     })
     if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
-      codexTicketAccountPolicy.value = extra?.codex_allow_without_ticket === true ? 'allow' : extra?.codex_allow_without_ticket === false ? 'deny' : 'inherit'
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
       codexCLIOnlyAppServerEnabled.value =
         extra?.codex_cli_only_allow_app_server === true
@@ -5760,7 +5765,7 @@ const handleSubmit = async () => {
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const shouldApplyModelMapping = !isOpenAIModelRestrictionDisabled.value
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
@@ -6305,6 +6310,11 @@ const handleSubmit = async () => {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
       }
+      if (openaiPassthroughEnabled.value && openaiPassthroughModelFilterEnabled.value) {
+        newExtra.openai_passthrough_model_filter = true
+      } else {
+        delete newExtra.openai_passthrough_model_filter
+      }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
         newExtra.openai_responses_flatten_namespaces = true
@@ -6390,11 +6400,6 @@ const handleSubmit = async () => {
       }
 
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
-        if (codexTicketAccountPolicy.value === 'inherit') {
-          delete newExtra.codex_allow_without_ticket
-        } else {
-          newExtra.codex_allow_without_ticket = codexTicketAccountPolicy.value === 'allow'
-        }
         if (codexCLIOnlyEnabled.value) {
           newExtra.codex_cli_only = true
         } else if (hadCodexCLIOnlyEnabled) {

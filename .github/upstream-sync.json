@@ -1,13 +1,13 @@
 {
   "repository": "Wei-Shaw/sub2api",
-  "version": "0.2.21",
-  "commit": "10ba8f9b4dc2e6023d4a9879ab77b21841babd10",
-  "previous_commit": "dab829a4e9b7d1cc307189aea8b0319eb29e29d0",
+  "version": "0.2.22",
+  "commit": "b0fa9f3e6eeab1968a53e1289b69daa4bb40ca2b",
+  "previous_commit": "10ba8f9b4dc2e6023d4a9879ab77b21841babd10",
   "sub4api_repository": "MACOS-DO/sub4api",
   "sub4api_version": "1.1.11",
   "sub4api_commit": "fd6790fd0ef745f8f46fd91521bad8690ffab0cc",
   "sub4api_tree": "08a5ff27fe0573cc7565bf05a6d2e4ac0cca13b5",
-  "method": "Three-way source merge of checksum-verified upstream v0.2.20 to v0.2.21, preserving fork module paths and customizations",
+  "method": "Three-way source merge of checksum-verified upstream v0.2.21 to v0.2.22, preserving fork features and existing worktree changes",
   "development_branch": "dev",
   "customizations": [
     "Current sidebar visibility switches and menu order",
@@ -19,18 +19,17 @@
     "Existing dev image workflow and startup smoke test"
   ],
   "conflict_resolution": {
-    "README.md": "Retain fork documentation; update source version and image output guidance",
-    "backend/cmd/server/VERSION": "Fork release version 1.1.14",
-    "backend/ent": "Regenerate from merged schema, retaining all fork fields",
-    "frontend/src/components/account/AccountUsageCell.vue": "Retain BPS credential state and add upstream loading accessibility and cached quota refresh behavior",
-    "frontend/src/components/account/__tests__/AccountUsageCell.spec.ts": "Retain fork Codex ticket tests and upstream cached quota tests",
-    "frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts": "Retain fork cache ratio coverage and add OpenAI TTL coverage",
-    "frontend/src/views/admin/SettingsView.vue": "Adopt upstream save dock and remove superseded fork save bar CSS",
-    "backend/internal/service/openai_bps_gateway.go": "Carry validated upstream cache-write TTL buckets into BPS billing",
-    "backend/migrations": "Retain exact upstream filenames and checksums; migration identity uses the full filename"
+    "backend/ent": "Regenerate from merged schema, retaining forced_service_tier and free_openai_ultrafast",
+    "backend/cmd/server/wire_gen.go": "Regenerate dependency injection with billing lane lifecycle",
+    "OpenAI group tiers": "Independent upstream force_openai_ultrafast flag overrides supported models; preserve fork forced tier fallback and free Ultra Fast billing",
+    "backend/internal/repository/scheduler_cache.go": "Align snapshot acceptance with upstream: missing Codex ticket projection fields no longer invalidate snapshots; retain BPS metadata and the projection marker",
+    "Codex ticket admission": "Remove ticket-based scheduling and forwarding denial, including lookup failures; retain optional valid ticket injection and real cooldowns. Remove admin admission controls; legacy policy fields are ignored by requests.",
+    "backend/internal/service/api_key_auth_cache_impl.go": "Use v29 for combined upstream and fork group fields",
+    "tests": "Adapt upstream Fast flag cases to the fork forced_service_tier contract; preserve independent Ultra Fast scenarios",
+    "README and release workflow": "Keep fork branding and publishing workflow; update source alignment record"
   },
   "test_compatibility": [
-    "Legacy Redis projection test now forces a cold read to exercise metadata validation under the 0.2.18 process-local memo",
+    "Legacy Redis projection tests verify cold-cache acceptance even when Codex ticket fields are absent, matching upstream v0.2.22 snapshot behavior",
     "Inherited hypothesis tests expect the 0.2.18 default CLI identity",
     "Protocol catalog fixtures have unique URLs per request even on coarse clocks",
     "Stale cooldown fixtures use a distinct reset time even on coarse clocks"
@@ -46,17 +45,17 @@
       "scope": "Kimi-specific authorization and gateway integration only"
     }
   },
-  "sync_date": "2026-11-13",
+  "sync_date": "2026-11-17",
   "previous_conflict_resolution": {
-    "README.md": "Retain fork documentation",
-    "backend/cmd/server/VERSION": "Fork release version 1.1.12; upstream source version remains 0.2.19",
-    "backend/ent": "Regenerate from merged schema with image_count_billing, forced_service_tier and free_openai_ultrafast",
-    "backend/internal/repository/account_repo.go": "Preserve Grok model metadata and fork Codex ticket/BPS credential state together",
-    "backend/internal/service/admin_account.go": "Defer fork timezone discovery until account transaction commit",
-    "backend/internal/service/api_key_auth_cache_impl.go": "Bump snapshot version to 26 for combined upstream and fork fields",
-    "backend/internal/handler/admin/account_handler.go": "Preserve BPS model listing in the shared helper used by scoped admin API keys",
-    "backend/internal/service/setting_service.go": "Retain fork caches and add scoped admin key repository",
-    "frontend/src/components/account/EditAccountModal.vue": "Preserve BPS account editor and add Grok diagnostics lifecycle handling"
+    "README.md": "Retain fork documentation; update source version and image output guidance",
+    "backend/cmd/server/VERSION": "Fork release version 1.1.14",
+    "backend/ent": "Regenerate from merged schema, retaining all fork fields",
+    "frontend/src/components/account/AccountUsageCell.vue": "Retain BPS credential state and add upstream loading accessibility and cached quota refresh behavior",
+    "frontend/src/components/account/__tests__/AccountUsageCell.spec.ts": "Retain fork Codex ticket tests and upstream cached quota tests",
+    "frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts": "Retain fork cache ratio coverage and add OpenAI TTL coverage",
+    "frontend/src/views/admin/SettingsView.vue": "Adopt upstream save dock and remove superseded fork save bar CSS",
+    "backend/internal/service/openai_bps_gateway.go": "Carry validated upstream cache-write TTL buckets into BPS billing",
+    "backend/migrations": "Retain exact upstream filenames and checksums; migration identity uses the full filename"
   },
-  "release_version": "1.1.14"
+  "release_version": "1.1.15"
 }

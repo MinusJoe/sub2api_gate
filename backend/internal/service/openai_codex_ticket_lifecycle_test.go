@@ -122,10 +122,10 @@ func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	upstream := &httpUpstreamRecorder{}
 	svc := ticketTestService(t, cfg, upstream)
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*shadow}}
-	require.True(t, svc.openAICodexTicketBlocksAccount(parent, "gpt-6-astra"))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(parent, "gpt-6-astra", false))
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 		shadow.Type = accountType
-		require.False(t, svc.openAICodexTicketBlocksAccount(shadow, "gpt-6-astra"))
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(shadow, "gpt-6-astra", false))
 		headers := http.Header{}
 		headers.Set(openAICodexTurnStateHeader, "client-state")
 		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), shadow, "gpt-6-astra", headers))

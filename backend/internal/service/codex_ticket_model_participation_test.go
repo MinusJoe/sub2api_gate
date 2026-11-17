@@ -40,12 +40,12 @@ func TestCodexTicketModelParticipationRequiresExplicitFalse(t *testing.T) {
 			account.Extra = map[string]any{"codex_allow_without_ticket": false, codexTicketModelsEnabledKey: test.models}
 			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
 			require.Equal(t, !test.excluded, CodexTicketHarvestEnabled(account, model))
-			require.Equal(t, !test.excluded, svc.openAICodexTicketBlocksAccount(account, model))
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, model, false))
 			require.Equal(t, test.excluded, OpenAICodexAllowsWithoutTicket(account, "  "+model+"  ", false))
-			require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-5.6-sol"), "one excluded model cannot exempt another")
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.6-sol", false))
 			for _, status := range OpenAICodexTicketStatuses(account, svc.openAICodexTicketConfig(), time.Now()) {
 				if status.Model == model {
-					require.Equal(t, !test.excluded, status.Blocked)
+					require.False(t, status.Blocked)
 				}
 			}
 		})
@@ -54,7 +54,7 @@ func TestCodexTicketModelParticipationRequiresExplicitFalse(t *testing.T) {
 	require.True(t, OpenAICodexAllowsWithoutTicket(nil, "", true))
 }
 
-func TestCodexTicketModelParticipationReenableRestoresPolicy(t *testing.T) {
+func TestCodexTicketModelParticipationDoesNotRestoreAdmissionGate(t *testing.T) {
 	account := ticketTestAccount(71)
 	account.Extra = map[string]any{"codex_allow_without_ticket": false}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
@@ -62,8 +62,8 @@ func TestCodexTicketModelParticipationReenableRestoresPolicy(t *testing.T) {
 	for _, enabled := range []bool{false, true, false} {
 		require.NoError(t, svc.SetCodexTicketParticipation(context.Background(), account.ID, true,
 			map[string]bool{"gpt-6-astra": enabled, "gpt-5.6-sol": true}))
-		require.Equal(t, enabled, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
-		require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-5.6-sol"))
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.6-sol", false))
 		require.Equal(t, false, account.Extra["codex_allow_without_ticket"])
 	}
 }
@@ -108,12 +108,8 @@ func TestCodexTicketModelParticipationHTTPAndWebSocketRequests(t *testing.T) {
 						}
 					}
 					require.Equal(t, 1, lookup.calls, "all transports must read the stored ticket")
-					if model == "gpt-5.6-sol" {
-						require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
-						return
-					}
 					require.NoError(t, err)
-					if savedTicket {
+					if savedTicket && model == "gpt-6-astra" {
 						require.Equal(t, "saved-state", headers.Get(openAICodexTurnStateHeader))
 						require.Equal(t, "__oailb=saved", headers.Get("Cookie"))
 					} else {
@@ -129,13 +125,13 @@ func TestCodexTicketModelParticipationHTTPAndWebSocketRequests(t *testing.T) {
 func TestCodexTicketModelParticipationUsesActualOutboundModel(t *testing.T) {
 	for _, test := range []struct {
 		name, requested, forward, mapped, compactMapped, fallback, outbound string
-		compact, blocked                                                    bool
+		compact                                                             bool
 	}{
 		{name: "mapped to excluded", requested: "gpt-5.6-sol", mapped: "gpt-6-astra", outbound: "gpt-6-astra"},
 		{name: "channel mapping to excluded", requested: "gpt-5.6-sol", forward: "gpt-6-astra", outbound: "gpt-6-astra"},
-		{name: "mapped to participating", requested: "gpt-6-astra", mapped: "gpt-5.6-sol", outbound: "gpt-5.6-sol", blocked: true},
+		{name: "mapped to participating", requested: "gpt-6-astra", mapped: "gpt-5.6-sol", outbound: "gpt-5.6-sol"},
 		{name: "compact mapping to excluded", requested: "gpt-5.6-sol", compactMapped: "gpt-6-astra", outbound: "gpt-6-astra", compact: true},
-		{name: "compact mapping to participating", requested: "gpt-6-astra", compactMapped: "gpt-5.6-sol", outbound: "gpt-5.6-sol", compact: true, blocked: true},
+		{name: "compact mapping to participating", requested: "gpt-6-astra", compactMapped: "gpt-5.6-sol", outbound: "gpt-5.6-sol", compact: true},
 		{name: "compact fallback to excluded", requested: "gpt-5.6-sol", fallback: "gpt-6-astra", outbound: "gpt-6-astra", compact: true},
 	} {
 		for _, advanced := range []bool{false, true} {
@@ -160,17 +156,11 @@ func TestCodexTicketModelParticipationUsesActualOutboundModel(t *testing.T) {
 					forwardModel = test.forward
 					ctx = WithOpenAIForwardModel(ctx, forwardModel, test.compact)
 				}
-				require.Equal(t, test.outbound, svc.openAICodexTicketOutboundModel(account, forwardModel, test.compact))
 				selection, _, err := svc.SelectAccountWithScheduler(ctx, nil, "", "", test.requested, nil, OpenAIUpstreamTransportAny, test.compact)
-				if test.blocked {
-					require.Error(t, err)
-					require.Nil(t, selection)
-				} else {
-					require.NoError(t, err)
-					require.Equal(t, account.ID, selection.Account.ID)
-					if selection.ReleaseFunc != nil {
-						selection.ReleaseFunc()
-					}
+				require.NoError(t, err)
+				require.Equal(t, account.ID, selection.Account.ID)
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
 				}
 
 				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
@@ -185,14 +175,9 @@ func TestCodexTicketModelParticipationUsesActualOutboundModel(t *testing.T) {
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
 				c.Request = httptest.NewRequest(http.MethodPost, route, bytes.NewReader(body))
 				result, err := svc.Forward(ctx, c, account, body)
-				if test.blocked {
-					require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
-					require.Empty(t, upstream.requests)
-				} else {
-					require.NoError(t, err)
-					require.NotNil(t, result)
-					require.Equal(t, test.outbound, gjson.GetBytes(upstream.lastBody, "model").String())
-				}
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Equal(t, test.outbound, gjson.GetBytes(upstream.lastBody, "model").String())
 			})
 		}
 	}

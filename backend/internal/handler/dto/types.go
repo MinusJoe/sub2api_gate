@@ -174,7 +174,8 @@ type AdminGroup struct {
 	// ForcedServiceTier 是管理端请求策略，用户侧分组 DTO 无需暴露。
 	ForcedServiceTier string `json:"forced_service_tier"`
 	// ForceOpenAIFast 是已弃用的只读兼容字段，等价于 ForcedServiceTier=="priority"。
-	ForceOpenAIFast bool `json:"force_openai_fast"`
+	ForceOpenAIFast      bool `json:"force_openai_fast"`
+	ForceOpenAIUltrafast bool `json:"force_openai_ultrafast"`
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。
 	FreeOpenAIFast bool `json:"free_openai_fast"`
 	// FreeOpenAIUltrafast 是管理端计费策略，用户侧分组 DTO 无需暴露。

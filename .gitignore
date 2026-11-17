@@ -154,6 +154,8 @@ docs/*
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/CODEX_PROBE_TEMPLATE.md
+!docs/CODEX_UPSTREAM_FIDELITY.md
+!docs/FPCAP_RUNBOOK.md
 !docs/codex-credits.md
 !docs/legal/
 !docs/legal/*.md

@@ -33,26 +33,25 @@ func TestCodexDiagnosticAndNormalRequestsUseSameTicketPolicy(t *testing.T) {
 		modelDisabled       bool
 		ticket              bool
 		model               string
-		allowed             bool
 	}{
-		{name: "default off and allow", allowed: true},
-		{name: "global off bypasses all missing-ticket restrictions", failClosed: true, global: "false", accountPolicy: false, allowed: true},
-		{name: "account excluded bypasses configured deny", enabled: true, failClosed: true, harvestDisabled: true, allowed: true},
-		{name: "account excluded bypasses global deny", enabled: true, global: "false", harvestDisabled: true, allowed: true},
-		{name: "account excluded bypasses explicit account deny", enabled: true, global: "false", accountPolicy: false, harvestDisabled: true, allowed: true},
-		{name: "account excluded still injects saved ticket", enabled: true, failClosed: true, harvestDisabled: true, ticket: true, allowed: true},
-		{name: "model excluded bypasses config deny", enabled: true, failClosed: true, modelDisabled: true, allowed: true},
-		{name: "model excluded bypasses global deny", enabled: true, global: "false", modelDisabled: true, allowed: true},
-		{name: "model excluded bypasses account deny", enabled: true, accountPolicy: false, modelDisabled: true, allowed: true},
-		{name: "model excluded still injects saved ticket", enabled: true, failClosed: true, modelDisabled: true, ticket: true, allowed: true},
-		{name: "enabled defaults allow", enabled: true, allowed: true},
+		{name: "default off and allow"},
+		{name: "global off bypasses all missing-ticket restrictions", failClosed: true, global: "false", accountPolicy: false},
+		{name: "account excluded bypasses configured deny", enabled: true, failClosed: true, harvestDisabled: true},
+		{name: "account excluded bypasses global deny", enabled: true, global: "false", harvestDisabled: true},
+		{name: "account excluded bypasses explicit account deny", enabled: true, global: "false", accountPolicy: false, harvestDisabled: true},
+		{name: "account excluded still injects saved ticket", enabled: true, failClosed: true, harvestDisabled: true, ticket: true},
+		{name: "model excluded bypasses config deny", enabled: true, failClosed: true, modelDisabled: true},
+		{name: "model excluded bypasses global deny", enabled: true, global: "false", modelDisabled: true},
+		{name: "model excluded bypasses account deny", enabled: true, accountPolicy: false, modelDisabled: true},
+		{name: "model excluded still injects saved ticket", enabled: true, failClosed: true, modelDisabled: true, ticket: true},
+		{name: "enabled defaults allow", enabled: true},
 		{name: "configured deny", enabled: true, failClosed: true},
-		{name: "saved global allow", enabled: true, failClosed: true, global: "true", allowed: true},
+		{name: "saved global allow", enabled: true, failClosed: true, global: "true"},
 		{name: "saved global deny", enabled: true, global: "false"},
-		{name: "account allows over global deny", enabled: true, global: "false", accountPolicy: true, allowed: true},
+		{name: "account allows over global deny", enabled: true, global: "false", accountPolicy: true},
 		{name: "account denies over global allow", enabled: true, global: "true", accountPolicy: false},
-		{name: "saved ticket still injected", enabled: true, failClosed: true, ticket: true, allowed: true},
-		{name: "old model exempt", enabled: true, failClosed: true, model: "gpt-5.4", allowed: true},
+		{name: "saved ticket still injected", enabled: true, failClosed: true, ticket: true},
+		{name: "old model exempt", enabled: true, failClosed: true, model: "gpt-5.4"},
 	} {
 		for _, advanced := range []string{"false", "true"} {
 			t.Run(test.name+"/advanced="+advanced, func(t *testing.T) {
@@ -92,23 +91,14 @@ func TestCodexDiagnosticAndNormalRequestsUseSameTicketPolicy(t *testing.T) {
 				svc.openaiCodexTicketLifecycle = lookup
 				for _, ctx := range []context.Context{context.Background(), WithCodexTicketDiagnostic(context.Background(), account.ID)} {
 					selection, _, err := svc.SelectAccountWithScheduler(ctx, nil, "", "", model, nil, OpenAIUpstreamTransportAny, false)
-					if !test.allowed {
-						require.Error(t, err)
-						require.Nil(t, selection)
-					} else {
-						require.NoError(t, err)
-						require.Equal(t, account.ID, selection.Account.ID)
-						if selection.ReleaseFunc != nil {
-							selection.ReleaseFunc()
-						}
+					require.NoError(t, err)
+					require.Equal(t, account.ID, selection.Account.ID)
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
 					}
 					headers := http.Header{}
 					err = svc.applyOpenAICodexTicket(ctx, account, model, headers)
-					if test.allowed {
-						require.NoError(t, err)
-					} else {
-						require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
-					}
+					require.NoError(t, err)
 					if test.ticket {
 						require.Equal(t, "saved-state", headers.Get(openAICodexTurnStateHeader))
 						require.Equal(t, "__oailb=saved", headers.Get("Cookie"))
@@ -132,6 +122,7 @@ func TestCodexDiagnosticCannotFailOverToAnotherAccount(t *testing.T) {
 		account.Concurrency = 1
 	}
 	target.Extra = map[string]any{"codex_allow_without_ticket": false}
+	target.Schedulable = false
 	other.Extra = map[string]any{"codex_allow_without_ticket": true}
 	svc := newOpenAICompactionSchedulerTestService([]Account{*target, *other}, false)
 	svc.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}
@@ -146,15 +137,14 @@ func TestCodexDiagnosticCannotFailOverToAnotherAccount(t *testing.T) {
 	}
 }
 
-func TestCodexTicketLookupErrorDoesNotBecomeNoTicket(t *testing.T) {
+func TestCodexTicketLookupErrorDoesNotBlockRequests(t *testing.T) {
 	account := ticketTestAccount(41)
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: false}, nil)
 	lookup := &codexTicketLookupStub{err: errors.New("database unavailable")}
 	svc.openaiCodexTicketLifecycle = lookup
 	for _, ctx := range []context.Context{context.Background(), WithCodexTicketDiagnostic(context.Background(), account.ID)} {
 		err := svc.applyOpenAICodexTicket(ctx, account, "gpt-6-astra", http.Header{})
-		require.ErrorIs(t, err, lookup.err)
-		require.NotErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
+		require.NoError(t, err)
 	}
 	require.Equal(t, 2, lookup.calls)
 }

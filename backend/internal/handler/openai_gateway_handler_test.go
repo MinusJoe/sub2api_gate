@@ -3410,3 +3410,17 @@ func TestOpenAIResponsesWebSocketSimpleModeRechecksKeyWindows(t *testing.T) {
 		})
 	}
 }
+
+// codex_cli_only 拒绝路径先写出 403 JSON 再返回错误；handler 不得在其后追加
+// response.failed / event:error 的 SSE 尾巴，否则响应体被污染。
+func TestOpenAIForwardErrorAlreadyCommunicatedCodexRestriction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	_, _ = w.WriteString(`{"error":{"type":"forbidden_error"}}`)
+
+	require.True(t, openAIForwardErrorAlreadyCommunicated(c, 0,
+		errors.New("codex_cli_only restriction: only codex official clients are allowed")))
+}

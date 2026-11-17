@@ -108,6 +108,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
 	AllowLive                   bool                              `json:"allow_live"`
 	ForcedServiceTier           string                            `json:"forced_service_tier"`
+	ForceOpenAIUltrafast        bool                              `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	FreeOpenAIUltrafast         bool                              `json:"free_openai_ultrafast"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`

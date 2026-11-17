@@ -124,6 +124,8 @@ const (
 	FieldAllowLive = "allow_live"
 	// FieldForcedServiceTier holds the string denoting the forced_service_tier field in the database.
 	FieldForcedServiceTier = "forced_service_tier"
+	// FieldForceOpenaiUltrafast holds the string denoting the force_openai_ultrafast field in the database.
+	FieldForceOpenaiUltrafast = "force_openai_ultrafast"
 	// FieldFreeOpenaiFast holds the string denoting the free_openai_fast field in the database.
 	FieldFreeOpenaiFast = "free_openai_fast"
 	// FieldFreeOpenaiUltrafast holds the string denoting the free_openai_ultrafast field in the database.
@@ -283,6 +285,7 @@ var Columns = []string{
 	FieldAllowMessagesDispatch,
 	FieldAllowLive,
 	FieldForcedServiceTier,
+	FieldForceOpenaiUltrafast,
 	FieldFreeOpenaiFast,
 	FieldFreeOpenaiUltrafast,
 	FieldRequireOauthOnly,
@@ -413,6 +416,8 @@ var (
 	DefaultAllowLive bool
 	// DefaultForcedServiceTier holds the default value on creation for the "forced_service_tier" field.
 	DefaultForcedServiceTier string
+	// DefaultForceOpenaiUltrafast holds the default value on creation for the "force_openai_ultrafast" field.
+	DefaultForceOpenaiUltrafast bool
 	// DefaultFreeOpenaiFast holds the default value on creation for the "free_openai_fast" field.
 	DefaultFreeOpenaiFast bool
 	// DefaultFreeOpenaiUltrafast holds the default value on creation for the "free_openai_ultrafast" field.
@@ -702,6 +707,11 @@ func ByAllowLive(opts ...sql.OrderTermOption) OrderOption {
 // ByForcedServiceTier orders the results by the forced_service_tier field.
 func ByForcedServiceTier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldForcedServiceTier, opts...).ToFunc()
+}
+
+// ByForceOpenaiUltrafast orders the results by the force_openai_ultrafast field.
+func ByForceOpenaiUltrafast(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldForceOpenaiUltrafast, opts...).ToFunc()
 }
 
 // ByFreeOpenaiFast orders the results by the free_openai_fast field.

@@ -109,7 +109,7 @@ func TestCodexTicketHarvestStillHonorsRuntimeGates(t *testing.T) {
 	}
 }
 
-func TestCodexTicketParticipationBypassesMissingTicketGateUntilReenabled(t *testing.T) {
+func TestCodexTicketParticipationNeverBlocksMissingTicketRequests(t *testing.T) {
 	account := ticketTestAccount(71)
 	account.Extra = map[string]any{"codex_allow_without_ticket": false}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
@@ -119,24 +119,20 @@ func TestCodexTicketParticipationBypassesMissingTicketGateUntilReenabled(t *test
 
 	for _, enabled := range []bool{false, true, false} {
 		require.NoError(t, svc.SetCodexTicketParticipation(ctx, account.ID, enabled, models))
-		require.Equal(t, enabled, svc.openAICodexTicketBlocksAccount(account, "gpt-5.6-sol"))
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.6-sol", false))
 		projected := ticketTestAccount(account.ID)
 		projected.SchedulerTicketProjection = true
 		projected.Extra = map[string]any{
 			codexTicketAccountEnabledKey: enabled, "codex_allow_without_ticket": false,
 			CodexTicketReadyModelsExtraKey: map[string]bool{}, codexTicketModelsEnabledKey: models,
 		}
-		require.Equal(t, enabled, svc.openAICodexTicketBlocksAccount(projected, "gpt-5.6-sol"))
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(projected, "gpt-5.6-sol", false))
 		_, err := svc.applyOpenAICodexTicketWithGeneration(ctx, account, "gpt-5.6-sol", http.Header{})
-		if enabled {
-			require.ErrorIs(t, err, ErrOpenAICodexTicketUnavailable)
-		} else {
-			require.NoError(t, err)
-		}
+		require.NoError(t, err)
 		for _, status := range OpenAICodexTicketStatuses(account, svc.openAICodexTicketConfig(), time.Now()) {
-			require.Equal(t, enabled && status.Model != "gpt-6-astra", status.Blocked)
+			require.False(t, status.Blocked)
 		}
-		require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"), "excluded model stays exempt when the account opts back in")
+		require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 		require.Equal(t, false, account.Extra["codex_allow_without_ticket"], "the saved policy must not change")
 		require.Equal(t, map[string]any{"gpt-6-astra": false, "gpt-5.6-sol": true}, account.Extra[codexTicketModelsEnabledKey])
 	}

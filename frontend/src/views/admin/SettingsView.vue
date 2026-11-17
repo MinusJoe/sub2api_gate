@@ -4479,13 +4479,6 @@
                     v-model="form.openai_codex_ticket_enabled"
                   />
                 </div>
-                <div class="flex items-center justify-between gap-4">
-                  <div class="min-w-0">
-                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t("admin.settings.gatewayForwarding.codexTicketAllowWithoutTicket") }}</h3>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.codexTicketAllowWithoutTicketDesc") }}</p>
-                  </div>
-                  <Toggle id="codex-ticket-allow-without" v-model="form.openai_codex_ticket_allow_without_ticket" />
-                </div>
                 <div class="space-y-2">
                   <div class="flex items-center justify-between gap-3">
                     <label for="codex-probe-template" class="text-base font-semibold text-gray-900 dark:text-white">{{ t("admin.settings.gatewayForwarding.codexProbeTemplate") }}</label>
@@ -9748,6 +9741,7 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
+  | "openai_codex_ticket_allow_without_ticket"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
@@ -10067,7 +10061,6 @@ const form = reactive<SettingsForm>({
   claude_code_client_version_synced: "",
   claude_code_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
-  openai_codex_ticket_allow_without_ticket: true,
   openai_codex_ticket_prompt_template: "",
   openai_codex_ticket_prompt_template_default: "",
   openai_codex_ticket_harvest_proxy_url: "",
@@ -11741,7 +11734,6 @@ async function saveSettings() {
       claude_code_version_auto_sync_enabled:
         form.claude_code_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
-      openai_codex_ticket_allow_without_ticket: form.openai_codex_ticket_allow_without_ticket,
       openai_codex_ticket_prompt_template:
         form.openai_codex_ticket_prompt_template === form.openai_codex_ticket_prompt_template_default
           ? ""

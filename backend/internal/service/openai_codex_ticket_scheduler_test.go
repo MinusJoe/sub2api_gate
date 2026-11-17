@@ -22,14 +22,14 @@ func TestCodexTicketSchedulerProjectionIsModelSpecific(t *testing.T) {
 	projected.Extra = map[string]any{CodexTicketReadyModelsExtraKey: ready}
 	projected.SchedulerTicketProjection = true
 	svc.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, ticket.Model), ticket)
-	require.False(t, svc.openAICodexTicketBlocksAccount(projected, "gpt-5.6-sol"))
-	require.True(t, svc.openAICodexTicketBlocksAccount(projected, "gpt-6-astra"))
-	require.False(t, svc.openAICodexTicketBlocksAccount(projected, "gpt-5.4"))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(projected, "gpt-5.6-sol", false))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(projected, "gpt-6-astra", false))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(projected, "gpt-5.4", false))
 	_, cached := svc.openaiCodexTickets.Load(openAICodexTicketKey(account.ID, ticket.Model))
 	require.True(t, cached, "metadata prefilter must not delete the real ticket")
-	require.False(t, svc.openAICodexTicketBlocksAccount(account, ticket.Model))
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, ticket.Model, false))
 	account.Extra[CodexTicketReadyModelsExtraKey] = map[string]bool{"gpt-6-astra": true}
-	require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"), "full account must ignore a projected readiness key")
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, ticket.Model, make(map[string][]string)))
 
 	delete(account.Extra, openAICodexTicketExtraKey(ticket.Model))
@@ -46,7 +46,7 @@ func TestCodexTicketAccountOverrideIsThreeState(t *testing.T) {
 	require.False(t, OpenAICodexAllowsWithoutTicket(account, "gpt-6-astra", true))
 	statuses := OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, time.Now())
 	require.NotEmpty(t, statuses)
-	require.True(t, statuses[0].Blocked)
+	require.False(t, statuses[0].Blocked)
 	statuses = OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, time.Now())
 	require.False(t, statuses[0].Blocked)
 }

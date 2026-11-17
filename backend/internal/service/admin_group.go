@@ -373,6 +373,7 @@ func sanitizeGroupOpenAIFast(group *Group) {
 	}
 	if !groupSupportsOpenAIFast(group.Platform) {
 		group.ForcedServiceTier = ""
+		group.ForceOpenAIUltrafast = false
 		group.FreeOpenAIFast = false
 		group.FreeOpenAIUltrafast = false
 		return
@@ -647,6 +648,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		AllowMessagesDispatch:           input.AllowMessagesDispatch,
 		AllowLive:                       input.AllowLive,
 		ForcedServiceTier:               input.ForcedServiceTier,
+		ForceOpenAIUltrafast:            input.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  input.FreeOpenAIFast,
 		FreeOpenAIUltrafast:             input.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                input.RequireOAuthOnly,
@@ -1040,6 +1042,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ForcedServiceTier != nil {
 		group.ForcedServiceTier = *input.ForcedServiceTier
+	}
+	if input.ForceOpenAIUltrafast != nil {
+		group.ForceOpenAIUltrafast = *input.ForceOpenAIUltrafast
 	}
 	if input.FreeOpenAIFast != nil {
 		group.FreeOpenAIFast = *input.FreeOpenAIFast

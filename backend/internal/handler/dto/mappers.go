@@ -150,6 +150,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		Group:                       groupFromServiceBase(g),
 		ForcedServiceTier:           g.ForcedServiceTier,
 		ForceOpenAIFast:             g.ForcedServiceTier == service.OpenAIFastTierPriority,
+		ForceOpenAIUltrafast:        g.ForceOpenAIUltrafast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		FreeOpenAIUltrafast:         g.FreeOpenAIUltrafast,
 		ProfitControlEnabled:        g.ProfitControlEnabled,

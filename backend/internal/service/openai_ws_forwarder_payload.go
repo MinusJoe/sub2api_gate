@@ -166,6 +166,10 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeadersWithTicket(
 		headers.Set(openAIWSTurnMetadataHeader, metadata)
 	}
 	applyCodexAccountIdentityHeaders(headers, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+	// Language normalization: the WS handshake shares the HTTP outbound policy.
+	if s != nil && s.cfg != nil && account != nil && account.UsesOpenAICodexProtocol() {
+		normalizeOpenAIAcceptLanguage(headers, s.openAIAcceptLanguageOverride())
+	}
 	applyStagedCodexFingerprintHeaders(c, account, headers)
 
 	if account != nil && account.UsesOpenAICodexProtocol() {
