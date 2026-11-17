@@ -38,7 +38,7 @@ func TestCodexTicketModelParticipationRequiresExplicitFalse(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			account := ticketTestAccount(71)
 			account.Extra = map[string]any{"codex_allow_without_ticket": false, codexTicketModelsEnabledKey: test.models}
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 			require.Equal(t, !test.excluded, CodexTicketHarvestEnabled(account, model))
 			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, model, false))
 			require.Equal(t, test.excluded, OpenAICodexAllowsWithoutTicket(account, "  "+model+"  ", false))
@@ -57,7 +57,7 @@ func TestCodexTicketModelParticipationRequiresExplicitFalse(t *testing.T) {
 func TestCodexTicketModelParticipationDoesNotRestoreAdmissionGate(t *testing.T) {
 	account := ticketTestAccount(71)
 	account.Extra = map[string]any{"codex_allow_without_ticket": false}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	svc.accountRepo = &codexParticipationRepo{account: account}
 	for _, enabled := range []bool{false, true, false} {
 		require.NoError(t, svc.SetCodexTicketParticipation(context.Background(), account.ID, true,
@@ -77,7 +77,7 @@ func TestCodexTicketModelParticipationHTTPAndWebSocketRequests(t *testing.T) {
 		if savedTicket {
 			account.Extra[openAICodexTicketExtraKey("gpt-6-astra")] = verifiedTicket(account, "gpt-6-astra", "saved-state", "__oailb=saved")
 		}
-		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 		for _, model := range []string{"gpt-6-astra", "gpt-5.6-sol"} {
 			for _, transport := range []string{"http", "passthrough", "websocket"} {
 				t.Run(fmt.Sprintf("%s/%s/ticket=%t", transport, model, savedTicket), func(t *testing.T) {
@@ -148,7 +148,7 @@ func TestCodexTicketModelParticipationUsesActualOutboundModel(t *testing.T) {
 					account.Credentials["compact_model_mapping"] = map[string]any{test.requested: test.compactMapped}
 				}
 				svc := newOpenAICompactionSchedulerTestService([]Account{*account}, advanced)
-				svc.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}
+				svc.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true} //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 				svc.cfg.Gateway.OpenAICompactModel = test.fallback
 				forwardModel := test.requested
 				ctx := context.Background()

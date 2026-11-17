@@ -221,7 +221,7 @@ func TestCodexTicketLegacyPolicyDoesNotBlockAndKeepsInjection(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &codexPolicyMigrationRepoStub{values: map[string]string{SettingKeyOpenAICodexTicketAllowWithoutTicket: test.global}}
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: test.failClosed}, nil)
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: test.failClosed}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 			svc.settingService = &SettingService{settingRepo: repo}
 			account := ticketTestAccount(41)
 			account.Extra = map[string]any{}

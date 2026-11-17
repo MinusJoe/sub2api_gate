@@ -126,7 +126,7 @@ func formatUint16List(values []uint16) string {
 // goLiteral 输出可直接粘进 Go 代码的 Profile 字面量。
 func goLiteral(p *profileOutput) string {
 	var b strings.Builder
-	b.WriteString("&tlsfingerprint.Profile{\n")
+	_, _ = b.WriteString("&tlsfingerprint.Profile{\n")
 	fmt.Fprintf(&b, "\tName:                %q,\n", p.Name)
 	fmt.Fprintf(&b, "\tCipherSuites:        %s,\n", formatUint16List(p.CipherSuites))
 	fmt.Fprintf(&b, "\tCurves:              %s,\n", formatUint16List(p.Curves))
@@ -141,7 +141,7 @@ func goLiteral(p *profileOutput) string {
 	}
 	fmt.Fprintf(&b, "\tALPNProtocols:       []string{%s},\n", strings.Join(alpn, ", "))
 	fmt.Fprintf(&b, "\tEnableGREASE:        %v,\n", p.EnableGREASE)
-	b.WriteString("}")
+	_, _ = b.WriteString("}")
 	return b.String()
 }
 

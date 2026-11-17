@@ -157,7 +157,7 @@ func forwardHTTP1(br *bufio.Reader, info *HTTP1Info, body []byte, base string, o
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if _, err := fmt.Fprintf(out, "HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode)); err != nil {
 		return err

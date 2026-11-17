@@ -115,14 +115,16 @@ func TestWSUpstreamHTTPClientProxySchemes(t *testing.T) {
 	d := &coderOpenAIWSClientDialer{proxyClients: make(map[string]*openAIWSProxyClientEntry)}
 	client, err := d.upstreamHTTPClient("http://127.0.0.1:18080", profile)
 	require.NoError(t, err)
-	transport := client.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
 	require.NotNil(t, transport.DialTLSContext)
 	require.Nil(t, transport.Proxy, "指纹模式由 DialTLSContext 处理 CONNECT，不能再设 Proxy")
 
 	d2 := &coderOpenAIWSClientDialer{proxyClients: make(map[string]*openAIWSProxyClientEntry)}
 	fallback, err := d2.upstreamHTTPClient("https://127.0.0.1:18443", profile)
 	require.NoError(t, err)
-	fallbackTransport := fallback.Transport.(*http.Transport)
+	fallbackTransport, ok := fallback.Transport.(*http.Transport)
+	require.True(t, ok)
 	require.NotNil(t, fallbackTransport.Proxy, "https 代理必须回退到普通代理客户端")
 	require.Nil(t, fallbackTransport.DialTLSContext)
 }

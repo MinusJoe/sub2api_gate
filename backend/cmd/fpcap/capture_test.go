@@ -303,7 +303,7 @@ func TestServeRecordsClientHelloOnALPNMismatch(t *testing.T) {
 	defer func() { _ = rawConn.Close() }()
 	_ = rawConn.SetDeadline(time.Now().Add(3 * time.Second))
 	client := tls.Client(rawConn, &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: true,           //nolint:gosec // 测试用自签证书，仅本地握手，不连真实上游
 		NextProtos:         []string{"h2"}, // 与服务端声明的 http/1.1 无交集
 	})
 	if err := client.Handshake(); err == nil {

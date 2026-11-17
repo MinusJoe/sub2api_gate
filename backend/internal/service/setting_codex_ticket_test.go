@@ -24,7 +24,7 @@ func (r *codexTicketSettingRepo) GetValue(ctx context.Context, key string) (stri
 func TestCodexTicketEnabledRuntimeSettingOverridesYaml(t *testing.T) {
 	repo := &codexTicketSettingRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{}}}
 	settings := NewSettingService(repo, &config.Config{})
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	svc.settingService = settings
 	account := ticketTestAccount(41)
 	account.Extra = map[string]any{openAICodexTicketExtraKey("gpt-6-astra"): verifiedTicket(account, "gpt-6-astra", fakeCodexTicketState(292), "")}

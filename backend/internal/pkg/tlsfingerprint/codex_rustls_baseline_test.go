@@ -28,7 +28,7 @@ func TestCodexRustlsProfileMatchesVendoredBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("打开基线失败: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)

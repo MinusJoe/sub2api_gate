@@ -25,7 +25,7 @@ func TestCodexRustlsProfileWireJA3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("监听失败: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	serverErr := make(chan error, 1)
 	observed := make(chan string, 1)
@@ -36,7 +36,7 @@ func TestCodexRustlsProfileWireJA3(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 		br := bufio.NewReader(conn)
 		hello, err := ReadClientHello(br)
@@ -62,7 +62,7 @@ func TestCodexRustlsProfileWireJA3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("连接测试服务失败: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	uconn := utls.UClient(raw, &utls.Config{
 		ServerName:         "chatgpt.com",

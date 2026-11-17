@@ -17,7 +17,7 @@ func TestCodexTicketSchedulerProjectionIsModelSpecific(t *testing.T) {
 	ready := OpenAICodexTicketReadyModels(account)
 	require.Equal(t, map[string]bool{"gpt-5.6-sol": true}, ready)
 
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	projected := ticketTestAccount(account.ID)
 	projected.Extra = map[string]any{CodexTicketReadyModelsExtraKey: ready}
 	projected.SchedulerTicketProjection = true
@@ -44,10 +44,10 @@ func TestCodexTicketAccountOverrideIsThreeState(t *testing.T) {
 	require.True(t, OpenAICodexAllowsWithoutTicket(account, "gpt-6-astra", false))
 	account.Extra["codex_allow_without_ticket"] = false
 	require.False(t, OpenAICodexAllowsWithoutTicket(account, "gpt-6-astra", true))
-	statuses := OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, time.Now())
+	statuses := OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, time.Now()) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	require.NotEmpty(t, statuses)
 	require.False(t, statuses[0].Blocked)
-	statuses = OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, time.Now())
+	statuses = OpenAICodexTicketStatuses(account, config.OpenAICodexTicketConfig{Enabled: false, FailClosed: true}, time.Now()) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	require.False(t, statuses[0].Blocked)
 }
 

@@ -18,13 +18,13 @@ func TestAccountResponseCodexTicketsUsesConfiguredPolicy(t *testing.T) {
 	for _, ticket := range initial {
 		require.False(t, ticket.HarvestEnabled)
 	}
-	h.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, Models: models, FailClosed: false}
+	h.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, Models: models}
 	status := h.accountListResponseFromService(account).CodexTurnTickets
 	require.Len(t, status, len(models))
 	require.Equal(t, models[0], status[0].Model)
 	require.True(t, status[0].HarvestEnabled)
 	require.False(t, status[0].Blocked)
-	h.cfg.Gateway.OpenAICodexTicket.FailClosed = true
+	h.cfg.Gateway.OpenAICodexTicket.FailClosed = true //nolint:staticcheck // 显式验证废弃字段不再产生阻塞
 	require.False(t, h.accountResponseFromService(account).CodexTurnTickets[0].Blocked, "legacy fail_closed must not advertise a removed admission block")
 }
 

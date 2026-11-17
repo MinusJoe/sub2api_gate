@@ -23,7 +23,7 @@ func TestLoadCodexTicketDefaultsAndExplicitPolicy(t *testing.T) {
 			}
 			cfg, err := Load()
 			require.NoError(t, err)
-			require.Equal(t, mode != "default", cfg.Gateway.OpenAICodexTicket.FailClosed)
+			require.Equal(t, mode != "default", cfg.Gateway.OpenAICodexTicket.FailClosed) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 		})
 	}
 }
@@ -51,7 +51,7 @@ func TestLoadCodexTicketHarvestIsOptIn(t *testing.T) {
 			cfg, err := Load()
 			require.NoError(t, err)
 			require.Equal(t, test.enabled, cfg.Gateway.OpenAICodexTicket.Enabled)
-			require.False(t, cfg.Gateway.OpenAICodexTicket.FailClosed)
+			require.False(t, cfg.Gateway.OpenAICodexTicket.FailClosed) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 		})
 	}
 }

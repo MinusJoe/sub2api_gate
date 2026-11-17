@@ -112,7 +112,7 @@ func TestCodexTicketHarvestStillHonorsRuntimeGates(t *testing.T) {
 func TestCodexTicketParticipationNeverBlocksMissingTicketRequests(t *testing.T) {
 	account := ticketTestAccount(71)
 	account.Extra = map[string]any{"codex_allow_without_ticket": false}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	svc.accountRepo = &codexParticipationRepo{account: account}
 	ctx := context.Background()
 	models := map[string]bool{"gpt-6-astra": false, "gpt-5.6-sol": true}

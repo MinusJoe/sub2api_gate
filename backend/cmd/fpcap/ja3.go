@@ -14,15 +14,15 @@ import (
 // JA3String 返回 JA3 原文（不含 MD5）。
 func JA3String(ch *ClientHello) string {
 	var b strings.Builder
-	b.WriteString(strconv.FormatUint(uint64(ch.Version), 10))
-	b.WriteByte(',')
-	b.WriteString(joinNumberList(ch.Ciphers, "-"))
-	b.WriteByte(',')
-	b.WriteString(joinNumberList(ch.Extensions, "-"))
-	b.WriteByte(',')
-	b.WriteString(joinNumberList(ch.Curves, "-"))
-	b.WriteByte(',')
-	b.WriteString(joinNumberList(ch.PointFormats, "-"))
+	_, _ = b.WriteString(strconv.FormatUint(uint64(ch.Version), 10))
+	_ = b.WriteByte(',')
+	_, _ = b.WriteString(joinNumberList(ch.Ciphers, "-"))
+	_ = b.WriteByte(',')
+	_, _ = b.WriteString(joinNumberList(ch.Extensions, "-"))
+	_ = b.WriteByte(',')
+	_, _ = b.WriteString(joinNumberList(ch.Curves, "-"))
+	_ = b.WriteByte(',')
+	_, _ = b.WriteString(joinNumberList(ch.PointFormats, "-"))
 	return b.String()
 }
 
@@ -38,9 +38,9 @@ func joinNumberList[T ~int | ~uint8 | ~uint16 | ~uint32](v []T, sep string) stri
 	var b strings.Builder
 	for i, x := range v {
 		if i > 0 {
-			b.WriteString(sep)
+			_, _ = b.WriteString(sep)
 		}
-		b.WriteString(strconv.FormatInt(int64(x), 10))
+		_, _ = b.WriteString(strconv.FormatInt(int64(x), 10))
 	}
 	return b.String()
 }

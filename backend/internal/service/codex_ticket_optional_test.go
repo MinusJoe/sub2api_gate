@@ -16,7 +16,7 @@ func TestCodexMissingTicketDoesNotBlockSchedulingOrRequest(t *testing.T) {
 	account := ticketTestAccount(901)
 	account.Schedulable, account.Concurrency = true, 1
 	account.Extra = map[string]any{"codex_allow_without_ticket": false}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 	headers := http.Header{"X-Codex-Turn-State": {"client-state"}}
 	ticket, err := svc.applyOpenAICodexTicketWithGeneration(context.Background(), account, "gpt-6-astra", headers)
@@ -45,7 +45,7 @@ func TestCodexOptionalTicketLookupFailureLeavesClientHeaders(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := ticketTestAccount(902)
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 			svc.openaiCodexTicketLifecycle = &codexTicketLookupStub{raw: tc.raw, err: tc.err}
 			headers := http.Header{"X-Codex-Turn-State": {"client-state"}, "Cookie": {"client=cookie"}}
 			ticket, err := svc.applyOpenAICodexTicketWithGeneration(context.Background(), account, "gpt-6-astra", headers)

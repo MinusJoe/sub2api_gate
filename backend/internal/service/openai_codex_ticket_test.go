@@ -41,7 +41,7 @@ func TestCodexTicketLegacyLengthOnlyIsNotReusable(t *testing.T) {
 	account.Extra = map[string]any{openAICodexTicketExtraKey("gpt-6-astra"): &openAICodexTicket{
 		AccountID: account.ID, Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(),
 	}}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	headers := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
 	require.Empty(t, headers.Get(openAICodexTurnStateHeader))
@@ -50,7 +50,7 @@ func TestCodexTicketLegacyLengthOnlyIsNotReusable(t *testing.T) {
 func TestCodexTicketCookieOnlyIsReusable(t *testing.T) {
 	account := ticketTestAccount(41)
 	account.Extra = map[string]any{openAICodexTicketExtraKey("gpt-6-astra"): verifiedTicket(account, "gpt-6-astra", "", "session=old")}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	headers := http.Header{}
 	headers.Set(openAICodexTurnStateHeader, "client-old")
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
@@ -72,7 +72,7 @@ func TestCodexTicketVerifiedOldCaptureDoesNotExpireByTTL(t *testing.T) {
 	ticket.CapturedAt = time.Now().Add(-7 * 24 * time.Hour)
 	ticket.ExpiresAt = time.Now().Add(-6 * 24 * time.Hour)
 	account.Extra = map[string]any{openAICodexTicketExtraKey(ticket.Model): ticket}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, TargetLength: 292}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, TargetLength: 292}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	headers := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, ticket.Model, headers))
 	require.Equal(t, ticket.State, headers.Get(openAICodexTurnStateHeader))
@@ -81,7 +81,7 @@ func TestCodexTicketVerifiedOldCaptureDoesNotExpireByTTL(t *testing.T) {
 func TestCodexTicketIsolationByRawModel(t *testing.T) {
 	account := ticketTestAccount(41)
 	account.Extra = map[string]any{openAICodexTicketExtraKey("gpt-6-astra"): verifiedTicket(account, "gpt-6-astra", "state-one", "")}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil) //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	oldModelHeaders := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-5.5", oldModelHeaders))
 	require.Empty(t, oldModelHeaders.Get(openAICodexTurnStateHeader))

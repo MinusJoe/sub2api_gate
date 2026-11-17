@@ -118,7 +118,7 @@ func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	shadow := ticketTestAccount(42)
 	shadow.ParentAccountID = &parentID
 	shadow.Status = StatusActive
-	cfg := config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, HarvestProxyURL: "http://proxy.example.com:8080"}
+	cfg := config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, HarvestProxyURL: "http://proxy.example.com:8080"} //nolint:staticcheck // 显式覆盖/读取废弃字段以验证其不再生效
 	upstream := &httpUpstreamRecorder{}
 	svc := ticketTestService(t, cfg, upstream)
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*shadow}}

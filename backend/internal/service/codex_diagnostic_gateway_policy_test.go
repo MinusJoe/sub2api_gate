@@ -77,7 +77,7 @@ func TestCodexDiagnosticAndNormalRequestsUseSameTicketPolicy(t *testing.T) {
 					account.Extra[openAICodexTicketExtraKey(model)] = verifiedTicket(account, model, "saved-state", "__oailb=saved")
 				}
 				cfg := &config.Config{}
-				cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: test.enabled, FailClosed: test.failClosed}
+				cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: test.enabled, FailClosed: test.failClosed} //nolint:staticcheck // 显式覆盖废弃字段以验证其不再生效
 				values := map[string]string{openAIAdvancedSchedulerSettingKey: advanced}
 				if test.global != "" {
 					values[SettingKeyOpenAICodexTicketAllowWithoutTicket] = test.global
@@ -125,7 +125,7 @@ func TestCodexDiagnosticCannotFailOverToAnotherAccount(t *testing.T) {
 	target.Schedulable = false
 	other.Extra = map[string]any{"codex_allow_without_ticket": true}
 	svc := newOpenAICompactionSchedulerTestService([]Account{*target, *other}, false)
-	svc.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}
+	svc.cfg.Gateway.OpenAICodexTicket = config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true} //nolint:staticcheck // 显式覆盖废弃字段以验证其不再生效
 	selection, _, err := svc.SelectAccountWithScheduler(WithCodexTicketDiagnostic(context.Background(), target.ID), nil, "", "", "gpt-6-astra", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err)
 	require.Nil(t, selection)
@@ -139,7 +139,7 @@ func TestCodexDiagnosticCannotFailOverToAnotherAccount(t *testing.T) {
 
 func TestCodexTicketLookupErrorDoesNotBlockRequests(t *testing.T) {
 	account := ticketTestAccount(41)
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: false}, nil)
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: false}, nil) //nolint:staticcheck // 显式覆盖废弃字段以验证其不再生效
 	lookup := &codexTicketLookupStub{err: errors.New("database unavailable")}
 	svc.openaiCodexTicketLifecycle = lookup
 	for _, ctx := range []context.Context{context.Background(), WithCodexTicketDiagnostic(context.Background(), account.ID)} {

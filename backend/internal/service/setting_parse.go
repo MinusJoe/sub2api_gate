@@ -912,7 +912,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else if s != nil && s.cfg != nil {
 		result.OpenAICodexTicketEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
 	}
-	result.OpenAICodexTicketAllowWithoutTicket = s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAICodexTicket.FailClosed
+	result.OpenAICodexTicketAllowWithoutTicket = s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAICodexTicket.FailClosed //nolint:staticcheck // 废弃字段仅用于兼容旧配置语义
 	if v, ok := settings[SettingKeyOpenAICodexTicketAllowWithoutTicket]; ok && v != "" {
 		result.OpenAICodexTicketAllowWithoutTicket = v == "true"
 	}
