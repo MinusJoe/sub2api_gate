@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1025,7 +1026,7 @@ type CircuitBreakerConfig struct {
 }
 
 type ConcurrencyConfig struct {
-	// PingInterval: 并发等待期间的 SSE ping 间隔（秒）
+	// PingInterval: 并发等待期间的 SSE ping 间隔（秒），0 禁用 ping
 	PingInterval int `mapstructure:"ping_interval"`
 }
 
@@ -1120,7 +1121,38 @@ type GatewayConfig struct {
 	// OpenAICompactModel: /responses/compact 上游使用的模型。
 	// compact 端点支持模型滞后于普通 /responses 时，可用该配置降级规避上游错误。
 	OpenAICompactModel string `mapstructure:"openai_compact_model"`
-	// OpenAICodexTicket: ChatGPT OAuth 账号按 (账号, 模型) 捕获 292 长度
+	// OpenAIAcceptLanguage: OpenAI 出站 accept-language 的归一值（默认空 = 不改写）。
+	// 仅在客户端已携带 accept-language 时改写为该值，不新增头，避免凭空多造一个上游信号。
+	OpenAIAcceptLanguage string `mapstructure:"openai_accept_language"`
+	// OpenAIEgressRegion: OpenAI 出口区域预设，允许 "" | "jp" | "sg"（默认空 = 关闭）。
+	// 配置后一键对齐「时区 + accept-language」：jp → Asia/Tokyo + 日语偏好，
+	// sg → Asia/Singapore + 英语偏好。显式 openai_default_timezone / openai_accept_language
+	// 仍然优先，避免覆盖逐项调好的配置。
+	OpenAIEgressRegion string `mapstructure:"openai_egress_region"`
+	// OpenAIDefaultTimezone: 没有账号级 openai_request_timezone 时的进程级默认时区（IANA 名称）。
+	// 默认空 = 沿用内置默认 Asia/Singapore；区域预设 jp/sg 在未显式配置时给出各自默认。
+	OpenAIDefaultTimezone string `mapstructure:"openai_default_timezone"`
+	// CodexUserAgentSuffix 覆盖规范 UA 的 OS/架构/终端段（默认取编译期常量）。
+	// 例：(Ubuntu 26.4.0; x86_64) xterm-256color —— 按真实抓包对齐发行版版本。
+	CodexUserAgentSuffix string `mapstructure:"codex_user_agent_suffix"`
+	// CodexIdentityMode 声明出站身份模式：cli（默认，codex_cli_rs）或 exec（codex_exec）。
+	// 两种都是官方客户端；与版本、UA 平台段必须同源，选择取决于下游真实用法。
+	CodexIdentityMode string `mapstructure:"codex_identity_mode"`
+	// CodexMinClientVersion: Codex 客户端版本全局下限（默认空 = 关闭）。
+	// 生效版本低于该值时抬到下限：线上 gpt-6*/astra 要求更高的客户端版本；
+	// 版本号来源（面板设置 / 自动同步）漂移时靠它兜住，出站 UA 版本段随之重建。
+	CodexMinClientVersion string `mapstructure:"codex_min_client_version"`
+	// OpenAICodexRequireOfficialClient: OpenAI OAuth 的 codex_cli_only 进程级默认开关。
+	// 显式 false 的账号不被覆盖；缺字段的账号跟随该默认值。
+	OpenAICodexRequireOfficialClient bool `mapstructure:"openai_codex_require_official_client"`
+	// OpenAICodexGateExtraPaths: 把 codex_cli_only 扩展到 images/embeddings/count_tokens/messages/WS。
+	// 默认 false（不配置即不变）；打开前确认官方客户端在这些入口也带 x-codex-* 指纹头。
+	OpenAICodexGateExtraPaths bool `mapstructure:"openai_codex_gate_extra_paths"`
+	// OpenAIPacingMaxAccountConcurrency: OpenAI 单账号调度并发上限（默认 0 = 关闭）。
+	// 只作用于 OpenAI 调度：Anthropic 共用 EffectiveLoadFactor，不受影响。
+	OpenAIPacingMaxAccountConcurrency int `mapstructure:"openai_pacing_max_account_concurrency"`
+	// OpenAIPacingRPM: 每账号每分钟出站请求上限（0=关闭）。超限时调度器跳过该账号并轮换。
+	OpenAIPacingRPM int `mapstructure:"openai_pacing_rpm_per_account"`
 	// x-codex-turn-state，并在住宅 IP 业务请求中注入该头。默认关闭。
 	OpenAICodexTicket OpenAICodexTicketConfig `mapstructure:"openai_codex_ticket"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
@@ -1346,18 +1378,24 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 // 打票走 harvest_proxy_url（SOCKS），业务出站仍用账号住宅 proxy_id，只替换该请求头。
 // 门票默认有效 3600 秒，临近过期前 refresh_before_seconds 重新打票。
 type OpenAICodexTicketConfig struct {
-	Enabled                      bool     `mapstructure:"enabled"`
-	TargetLength                 int      `mapstructure:"target_length"`
-	TTLSeconds                   int      `mapstructure:"ttl_seconds"`
-	RefreshBeforeSeconds         int      `mapstructure:"refresh_before_seconds"`
-	HarvestProxyURL              string   `mapstructure:"harvest_proxy_url"`
-	HarvestProbeIntervalSeconds  int      `mapstructure:"harvest_probe_interval_seconds"`
-	HarvestAttemptTimeoutSeconds int      `mapstructure:"harvest_attempt_timeout_seconds"`
-	FailClosed                   bool     `mapstructure:"fail_closed"`
-	Models                       []string `mapstructure:"models"`
-	HarvestRetryMinSeconds       int      `mapstructure:"harvest_retry_min_seconds"`
-	HarvestRetryMaxSeconds       int      `mapstructure:"harvest_retry_max_seconds"`
-	HarvestRefreshSeconds        int      `mapstructure:"harvest_refresh_seconds"`
+	Enabled                      bool   `mapstructure:"enabled"`
+	TargetLength                 int    `mapstructure:"target_length"`
+	TTLSeconds                   int    `mapstructure:"ttl_seconds"`
+	RefreshBeforeSeconds         int    `mapstructure:"refresh_before_seconds"`
+	HarvestProxyURL              string `mapstructure:"harvest_proxy_url"`
+	HarvestProbeIntervalSeconds  int    `mapstructure:"harvest_probe_interval_seconds"`
+	HarvestAttemptTimeoutSeconds int    `mapstructure:"harvest_attempt_timeout_seconds"`
+	// Deprecated: missing Codex tickets no longer block scheduling or forwarding.
+	FailClosed             bool     `mapstructure:"fail_closed"`
+	Models                 []string `mapstructure:"models"`
+	HarvestRetryMinSeconds int      `mapstructure:"harvest_retry_min_seconds"`
+	HarvestRetryMaxSeconds int      `mapstructure:"harvest_retry_max_seconds"`
+	HarvestRefreshSeconds  int      `mapstructure:"harvest_refresh_seconds"`
+	// ??????:???????????;??????????????
+	HarvestProbeJitterRatio float64 `mapstructure:"harvest_probe_jitter_ratio"`
+	HarvestNightMultiplier  float64 `mapstructure:"harvest_night_multiplier"`
+	HarvestNightStartHour   int     `mapstructure:"harvest_night_start_hour"`
+	HarvestNightEndHour     int     `mapstructure:"harvest_night_end_hour"`
 }
 
 // DefaultOpenAIWSClientFirstMessageTimeoutSeconds preserves the legacy ingress deadline.
@@ -2556,6 +2594,16 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
+	viper.SetDefault("gateway.openai_accept_language", "")
+	viper.SetDefault("gateway.openai_egress_region", "")
+	viper.SetDefault("gateway.openai_default_timezone", "")
+	viper.SetDefault("gateway.codex_min_client_version", "")
+	viper.SetDefault("gateway.codex_user_agent_suffix", "")
+	viper.SetDefault("gateway.codex_identity_mode", "")
+	viper.SetDefault("gateway.openai_codex_require_official_client", false)
+	viper.SetDefault("gateway.openai_codex_gate_extra_paths", false)
+	viper.SetDefault("gateway.openai_pacing_max_account_concurrency", 0)
+	viper.SetDefault("gateway.openai_pacing_rpm_per_account", 0)
 	// Ticket harvesting is opt-in; explicit settings or YAML/env can enable it.
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
 	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
@@ -2563,6 +2611,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 600)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_interval_seconds", 6)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_jitter_ratio", 0.3)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_night_multiplier", 1.0)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_night_start_hour", 23)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_night_end_hour", 7)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_attempt_timeout_seconds", 90)
 	viper.SetDefault("gateway.openai_codex_ticket.fail_closed", false)
 	viper.SetDefault("gateway.openai_codex_ticket.models", []string{"gpt-6-astra", "gpt-5.6-sol"})
@@ -3745,6 +3797,46 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIHTTP2.FallbackTTLSeconds < 0 {
 		return fmt.Errorf("gateway.openai_http2.fallback_ttl_seconds must be non-negative")
 	}
+	// accept-language 归一值会原样写进上游请求头：只允许 BCP47 语言标签与 q 值的常见字符，
+	// 长度与字符集之外的任何输入（尤其 CR/LF）都直接判配置错误，不做静默降级。
+	if value := c.Gateway.OpenAIAcceptLanguage; value != "" {
+		if len(value) > openAIAcceptLanguageMaxLen {
+			return fmt.Errorf("gateway.openai_accept_language must be at most %d bytes", openAIAcceptLanguageMaxLen)
+		}
+		for i := 0; i < len(value); i++ {
+			if !isAllowedOpenAIAcceptLanguageByte(value[i]) {
+				return fmt.Errorf("gateway.openai_accept_language may only contain [A-Za-z0-9,;=. -]")
+			}
+		}
+	}
+	// 出口区域预设只接受 jp/sg：拼错的国家码会让「一键对齐」静默失效，
+	// 因此去空格转小写后不属于允许集合即判错，不做静默降级。
+	if region := strings.ToLower(strings.TrimSpace(c.Gateway.OpenAIEgressRegion)); region != "" {
+		switch region {
+		case "jp", "sg":
+		default:
+			return fmt.Errorf("gateway.openai_egress_region must be one of empty|jp|sg")
+		}
+	}
+	// 默认时区会被写进请求体：必须能被 time.LoadLocation 解析，否则运行期只能静默回落。
+	if tz := strings.TrimSpace(c.Gateway.OpenAIDefaultTimezone); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return fmt.Errorf("gateway.openai_default_timezone must be a valid IANA timezone: %w", err)
+		}
+	}
+	// 版本下限会拼进出站 User-Agent 与 version 头：只接受官方版本号形态，
+	// 形状不对的输入在启动期就拒掉，而不是等运行期静默判为关闭。
+	if mode := strings.ToLower(strings.TrimSpace(c.Gateway.CodexIdentityMode)); mode != "" && mode != "cli" && mode != "exec" {
+		return fmt.Errorf("gateway.codex_identity_mode must be cli or exec")
+	}
+	if version := strings.TrimSpace(c.Gateway.CodexMinClientVersion); version != "" && !codexMinClientVersionPattern.MatchString(version) {
+		return fmt.Errorf("gateway.codex_min_client_version must be a numeric version like 0.153.4")
+	}
+	// 单账号并发上限是「0 = 关闭」的开关：负数没有对应语义，直接判配置错误，
+	// 避免静默当成关闭后运维以为限流已生效。
+	if c.Gateway.OpenAIPacingMaxAccountConcurrency < 0 {
+		return fmt.Errorf("gateway.openai_pacing_max_account_concurrency must be non-negative")
+	}
 	if c.Gateway.OpenAIProxyStreamCircuit.FailureThreshold < 0 {
 		return fmt.Errorf("gateway.openai_proxy_stream_circuit.failure_threshold must be non-negative")
 	}
@@ -3921,8 +4013,8 @@ func (c *Config) Validate() error {
 	if c.Ops.Cleanup.Enabled && strings.TrimSpace(c.Ops.Cleanup.Schedule) == "" {
 		return fmt.Errorf("ops.cleanup.schedule is required when ops.cleanup.enabled=true")
 	}
-	if c.Concurrency.PingInterval < 5 || c.Concurrency.PingInterval > 30 {
-		return fmt.Errorf("concurrency.ping_interval must be between 5-30 seconds")
+	if c.Concurrency.PingInterval != 0 && (c.Concurrency.PingInterval < 5 || c.Concurrency.PingInterval > 30) {
+		return fmt.Errorf("concurrency.ping_interval must be 0 (disabled) or between 5-30 seconds")
 	}
 	if c.Gateway.Grok.FreeQuotaSoftGateEnabled {
 		if c.Gateway.Grok.FreeQuotaTokenLimit <= 0 {
@@ -4012,6 +4104,28 @@ func GetServerAddress() string {
 	port := v.GetInt("server.port")
 	return fmt.Sprintf("%s:%d", host, port)
 }
+
+// openAIAcceptLanguageMaxLen 是 gateway.openai_accept_language 的字节上限。
+// 常见的 `zh-CN,zh;q=0.9,en;q=0.8` 只有二十余字节，128 已足够宽松。
+const openAIAcceptLanguageMaxLen = 128
+
+// isAllowedOpenAIAcceptLanguageByte 判定 accept-language 归一值允许出现的字节：
+// ASCII 字母数字加 BCP47 分隔符（逗号、分号、等号、点、连字符、空格）。
+// 控制字节（含 CR/LF）与任何非 ASCII 字节均不允许，避免变成请求头注入面。
+func isAllowedOpenAIAcceptLanguageByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == ',', c == ';', c == '=', c == '.', c == '-', c == ' ':
+		return true
+	default:
+		return false
+	}
+}
+
+// codexMinClientVersionPattern 只接受纯数字版本（如 0.153.4）。预发布后缀（如 0.153.4-beta.1）不在此放行：
+// 下限比较器会截断后缀，导致夹逼失效并持续误报告警；service 层同样拒绝该形态并回落为关闭。
+var codexMinClientVersionPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
 // ValidateAbsoluteHTTPURL 验证是否为有效的绝对 HTTP(S) URL
 func ValidateAbsoluteHTTPURL(raw string) error {

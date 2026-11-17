@@ -18,7 +18,6 @@ import (
 
 	"github.com/MACOS-DO/sub4api/internal/config"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
-	"github.com/MACOS-DO/sub4api/internal/pkg/openai"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -30,10 +29,6 @@ const (
 	openAICodexTicketDefaultModel    = "gpt-6-astra"
 	openAICodexTicketDefaultSolModel = "gpt-5.6-sol"
 )
-
-// ErrOpenAICodexTicketUnavailable 表示该号该模型没有符合账号规则的有效门票，
-// 且 fail_closed 禁止裸打业务请求。
-var ErrOpenAICodexTicketUnavailable = errors.New("codex turn-state ticket unavailable")
 
 type openAICodexTicket struct {
 	AccountID          int64     `json:"account_id"`
@@ -167,7 +162,6 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 			status.CookiePresent = ticket.Cookie != ""
 			status.FingerprintCommit = ticket.FingerprintCommit
 		}
-		status.Blocked = cfg.Enabled && !OpenAICodexAllowsWithoutTicket(account, model, !cfg.FailClosed) && !status.Ready
 		out = append(out, status)
 	}
 	return out
@@ -263,8 +257,8 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 }
 
 // applyOpenAICodexTicket 在出站请求上覆盖 x-codex-turn-state。
-// 请求路径只注入已捕获的有效门票，不现场打票；仅在无票策略禁止时返回
-// ErrOpenAICodexTicketUnavailable。关闭全局、账号或当前模型参与时不限制无票请求。
+// 已捕获的有效票据仅作为可选增强；缺失、读取失败或无效时保持请求原样。
+// 票据状态与旧的无票策略不再限制选号或转发。
 func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, account *Account, model string, h http.Header) error {
 	_, err := s.applyOpenAICodexTicketWithGeneration(ctx, account, model, h)
 	return err
@@ -282,12 +276,14 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithGeneration(ctx context.
 	if s.openaiCodexTicketLifecycle != nil {
 		raw, err := s.openaiCodexTicketLifecycle.CurrentTicket(ctx, account.ID, model)
 		if err != nil {
-			return nil, err
+			logger.L().Warn("optional Codex ticket unavailable; forwarding without saved ticket", zap.Int64("account_id", account.ID), zap.Error(err))
+			return nil, nil
 		}
 		if len(raw) > 0 && string(raw) != "null" {
 			var current openAICodexTicket
 			if err := json.Unmarshal(raw, &current); err != nil {
-				return nil, err
+				logger.L().Warn("optional Codex ticket unavailable; forwarding without saved ticket", zap.Int64("account_id", account.ID), zap.Error(err))
+				return nil, nil
 			}
 			ticket = parseOpenAICodexTicketFromAny(account.ID, model, current)
 		}
@@ -303,10 +299,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithGeneration(ctx context.
 		applyOpenAICodexTicketCookie(h, ticket)
 		return ticket, nil
 	}
-	if s.openAICodexAllowsWithoutTicket(ctx, account, model) {
-		return nil, nil
-	}
-	return nil, ErrOpenAICodexTicketUnavailable
+	return nil, nil
 }
 
 // applyOpenAICodexTicketCookie 把打票成功时捕获的 Cookie 与票据一并复用。
@@ -324,63 +317,6 @@ func applyOpenAICodexTicketCookie(h http.Header, ticket *openAICodexTicket) {
 		return
 	}
 	h.Set("Cookie", cookie)
-}
-
-// openAICodexTicketOutboundModel 预测本请求真正出站的模型名，也就是
-// applyOpenAICodexTicket 注入时读到的 body.model。
-//
-// 调度门控与注入必须按同一个模型名判定门票。普通请求下二者同源：Forward 的
-// upstreamModel 与本函数都走 resolveOpenAIAccountUpstreamModelForRequest，且
-// Forward 会把 body.model 改写成该值后才注入。但 /responses/compact 例外——
-// Forward 会把出站模型进一步改写为 compact 映射或 gateway.openai_compact_model
-// （默认非空），此时若门控仍按客户端原始模型判定，就会把「实际出站是非门控
-// 模型、根本不需要票」的 compact 请求整片误拦成不可调度。
-func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, requestedModel string, requireCompact bool) string {
-	model := strings.TrimSpace(requestedModel)
-	if account == nil || model == "" {
-		return model
-	}
-	if !account.IsOpenAI() {
-		return canonicalOpenAIAccountSchedulingModel(account, model)
-	}
-	_, upstreamModel := resolveOpenAIForwardMappedModels(account, model, requireCompact)
-	if requireCompact {
-		// 与 Forward 同序：compact 兜底模型优先于普通/compact 映射结果。
-		if compactModel := strings.TrimSpace(s.resolveOpenAICompactFallbackModel(account, model)); compactModel != "" {
-			upstreamModel = compactModel
-		}
-	}
-	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
-		return upstreamModel
-	}
-	return model
-}
-
-// outboundModel 必须是真正会发给上游的模型名（openAICodexTicketOutboundModel），
-// 不是客户端原始模型：注入侧读的是出站 body.model，两侧口径必须一致。
-func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
-	if s == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
-		return false
-	}
-	model := normalizeOpenAICodexTicketModel(outboundModel)
-	if s.openAICodexAllowsWithoutTicket(context.Background(), account, model) {
-		return false
-	}
-	if !s.openAICodexTicketGatedModel(model) {
-		return false
-	}
-	if projected, ok := account.Extra[CodexTicketReadyModelsExtraKey]; account.SchedulerTicketProjection && ok {
-		switch ready := projected.(type) {
-		case map[string]bool:
-			return !ready[model]
-		case map[string]any:
-			return ready[model] != true
-		default:
-			return true
-		}
-	}
-	ticket := s.lookupOpenAICodexTicket(account, model)
-	return !ticket.usable(time.Now(), 0, false, 0)
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, challenge ModelTraceChallenge, attemptTimeout time.Duration) (output string, state string, cookie string, status int, err error) {
@@ -407,8 +343,8 @@ func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, a
 	if err := resolveAndSetOpenAIChatGPTAccountHeaders(attemptCtx, s.accountRepo, req.Header, account); err != nil {
 		return "", "", "", 0, err
 	}
-	applyOpenAICodexTicketHarvestIdentity(req.Header, model)
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	applyOpenAICodexTicketHarvestIdentity(req.Header, model, s.codexIdentityOverrideUA(account))
+	resp, err := s.doOpenAIUpstreamWithTLS(req, proxyURL, account)
 	if err != nil {
 		return "", "", "", 0, err
 	}
@@ -482,15 +418,41 @@ func extractOpenAICodexResponseCookies(h http.Header) string {
 	return strings.Join(pairs, "; ")
 }
 
-func applyOpenAICodexTicketHarvestIdentity(h http.Header, model string) {
+// applyOpenAICodexTicketHarvestIdentity 把打票请求的客户端身份收敛为与业务转发同一套规范身份。
+//
+// 打票与业务请求必须声明同一个客户端版本：同一账号同一 installation 在几分钟内交替声明
+// 两个版本本身就是可识别的异常信号，因此这里不再按模型抬升 version / User-Agent / originator，
+// 身份完全由 ensureCodexIdentityHeaders + enforceCodexIdentityHeaders 收口。
+//
+// model 参数保留用于 astra 版本下限校验：需要 astra 版本的模型在生效版本低于下限时只发一条
+// Warn 提示运维调整 Codex 客户端版本（见 warnIfOpenAICodexVersionBelowAstra），不修改任何请求头。
+func applyOpenAICodexTicketHarvestIdentity(h http.Header, model, overrideUA string) {
 	ensureCodexIdentityHeaders(h)
-	enforceCodexIdentityHeaders(h)
-	version := strings.TrimSpace(h.Get("version"))
-	if needsOpenAICodexAstraVersion(model) && (version == "" || CompareVersions(version, openAICodexAstraMinVersion) < 0) {
-		h.Set("version", openAICodexAstraMinVersion)
-		h.Set("user-agent", buildCodexCLIUserAgent(openAICodexAstraMinVersion))
-		h.Set("originator", openai.CodexDefaultOriginator)
+	enforceCodexIdentityHeadersWithUA(h, overrideUA)
+	warnIfOpenAICodexVersionBelowAstra(model, h.Get("version"))
+}
+
+// openAICodexAstraVersionWarned 记录已经提示过「生效版本低于 astra 下限」的模型，
+// 保证同一模型只在打票热路径上刷一条日志，不随打票频率反复告警。
+var openAICodexAstraVersionWarned sync.Map
+
+// warnIfOpenAICodexVersionBelowAstra 在模型需要 astra 版本而当前生效版本低于下限时告警一次。
+// 只告警、不改请求头：出站身份必须与业务转发路径逐字一致，否则同一账号会交替声明两个版本。
+func warnIfOpenAICodexVersionBelowAstra(model, version string) {
+	if !needsOpenAICodexAstraVersion(model) {
+		return
 	}
+	current := strings.TrimSpace(version)
+	if current != "" && CompareVersions(current, openAICodexAstraMinVersion) >= 0 {
+		return
+	}
+	key := strings.ToLower(normalizeOpenAICodexTicketModel(model))
+	if _, seen := openAICodexAstraVersionWarned.LoadOrStore(key, struct{}{}); seen {
+		return
+	}
+	logger.LegacyPrintf("openai_codex_ticket",
+		"[warn] model %s needs Codex client version >= %s but the effective version is %q; please raise the Codex client version setting (identity headers are left untouched)",
+		model, openAICodexAstraMinVersion, current)
 }
 
 func needsOpenAICodexAstraVersion(model string) bool {
@@ -594,7 +556,7 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestLoop(ctx context.Context)
 // when a scheduled retry falls inside that interval. This prevents the scanner
 // cadence from stretching a requested 20-40 second retry beyond its upper bound.
 func (s *OpenAIGatewayService) openAICodexTicketNextScanDelay(now time.Time) time.Duration {
-	delay := time.Duration(s.openAICodexTicketConfig().HarvestProbeIntervalSeconds) * time.Second
+	delay := harvestScanBaseDelayNow(s.openAICodexTicketConfig(), now)
 	s.openaiCodexTicketNextAttempt.Range(func(_, value any) bool {
 		next, ok := value.(time.Time)
 		if !ok {
@@ -801,6 +763,7 @@ func RedactOpenAICodexTicketExtra(extra map[string]any) map[string]any {
 
 // OpenAICodexAllowsWithoutTicket bypasses the missing-ticket gate when the account
 // or outbound model is excluded; otherwise the account override wins over the global default.
+// Deprecated: reports legacy stored policy only; scheduling and forwarding no longer use it.
 func OpenAICodexAllowsWithoutTicket(account *Account, model string, globalDefault bool) bool {
 	if account != nil {
 		if !codexTicketParticipationEnabled(account, model) {
@@ -811,12 +774,4 @@ func OpenAICodexAllowsWithoutTicket(account *Account, model string, globalDefaul
 		}
 	}
 	return globalDefault
-}
-
-func (s *OpenAIGatewayService) openAICodexAllowsWithoutTicket(ctx context.Context, account *Account, model string) bool {
-	allow := !s.openAICodexTicketConfig().FailClosed
-	if s.settingService != nil {
-		allow = s.settingService.GetOpenAICodexTicketAllowWithoutTicket(ctx, allow)
-	}
-	return OpenAICodexAllowsWithoutTicket(account, model, allow)
 }

@@ -2135,7 +2135,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 		}
 	}
 	sentHeaders := cloneHeader(headers)
-	conn, status, handshakeHeaders, err := p.clientDialer.Dial(ctx, req.WSURL, headers, req.ProxyURL)
+	conn, status, handshakeHeaders, err := dialOpenAIWSClient(ctx, p.clientDialer, req.WSURL, headers, req.ProxyURL, openAITLSProfileFor(req.Account))
 	if req.ObserveHandshake != nil {
 		req.ObserveHandshake(sentHeaders, status, handshakeHeaders)
 	}

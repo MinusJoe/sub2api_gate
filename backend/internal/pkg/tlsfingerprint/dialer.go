@@ -456,6 +456,12 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 	}
 }
 
+// BuildClientHelloSpec 返回该 profile 对应的 ClientHello 构造（生产路径内部同样使用），
+// 导出给验收测试与外部工具，用于在真实网线上校验字节。
+func BuildClientHelloSpec(profile *Profile) *utls.ClientHelloSpec {
+	return buildClientHelloSpecFromProfile(profile)
+}
+
 // toUint8s converts []uint16 to []uint8 (for utls fields that require []uint8).
 func toUint8s(vals []uint16) []uint8 {
 	out := make([]uint8, len(vals))

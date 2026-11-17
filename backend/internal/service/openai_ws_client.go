@@ -15,6 +15,8 @@ import (
 	openaiwsv2 "github.com/MACOS-DO/sub4api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 )
 
 const openAIWSMessageReadLimitBytes int64 = 16 * 1024 * 1024
@@ -68,6 +70,12 @@ type openAIWSClientDialer interface {
 	Dial(ctx context.Context, wsURL string, headers http.Header, proxyURL string) (openAIWSClientConn, int, http.Header, error)
 }
 
+// openAIWSProfileDialer ?????:????? TLS Profile ??? dialer ????
+// ????????? openAIWSClientDialer ???,????????????????
+type openAIWSProfileDialer interface {
+	DialWithProfile(ctx context.Context, wsURL string, headers http.Header, proxyURL string, profile *tlsfingerprint.Profile) (openAIWSClientConn, int, http.Header, error)
+}
+
 type openAIWSTransportMetricsDialer interface {
 	SnapshotTransportMetrics() OpenAIWSTransportMetricsSnapshot
 }
@@ -118,6 +126,17 @@ func (d *coderOpenAIWSClientDialer) Dial(
 	headers http.Header,
 	proxyURL string,
 ) (openAIWSClientConn, int, http.Header, error) {
+	return d.DialWithProfile(ctx, wsURL, headers, proxyURL, nil)
+}
+
+// DialWithProfile ??????? utls ??;profile ? nil ??? Dial ?????
+func (d *coderOpenAIWSClientDialer) DialWithProfile(
+	ctx context.Context,
+	wsURL string,
+	headers http.Header,
+	proxyURL string,
+	profile *tlsfingerprint.Profile,
+) (openAIWSClientConn, int, http.Header, error) {
 	targetURL := strings.TrimSpace(wsURL)
 	if targetURL == "" {
 		return nil, 0, nil, errors.New("ws url is empty")
@@ -132,12 +151,12 @@ func (d *coderOpenAIWSClientDialer) Dial(
 			return true
 		},
 	}
-	if proxy := strings.TrimSpace(proxyURL); proxy != "" {
-		proxyClient, err := d.proxyHTTPClient(proxy)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		opts.HTTPClient = proxyClient
+	client, err := d.upstreamHTTPClient(proxyURL, profile)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	if client != nil {
+		opts.HTTPClient = client
 	}
 
 	conn, resp, err := coderws.Dial(ctx, targetURL, opts)
@@ -164,6 +183,72 @@ func (d *coderOpenAIWSClientDialer) Dial(
 	}
 	wrapped.conn = conn
 	return wrapped, 0, respHeaders, nil
+}
+
+// upstreamHTTPClient ?? WS ???? HTTP ????
+//
+// profile == nil:?????(??? ? ??????;??? ? proxyHTTPClient)?
+// profile != nil:? tlsfingerprint ? dialer ? TLS,ForceAttemptHTTP2=false,
+// ???????????(? ALPN ? HTTP/1.1 ??)?
+// https ????? scheme ??????????(???),?????????
+func (d *coderOpenAIWSClientDialer) upstreamHTTPClient(proxy string, profile *tlsfingerprint.Profile) (*http.Client, error) {
+	if profile == nil {
+		if strings.TrimSpace(proxy) == "" {
+			return nil, nil
+		}
+		return d.proxyHTTPClient(proxy)
+	}
+	key := "fp:" + tlsfingerprint.ProfileKey(profile) + "|proxy:" + strings.TrimSpace(proxy)
+	if client := d.cachedProxyClient(key); client != nil {
+		return client, nil
+	}
+	transport := &http.Transport{
+		ForceAttemptHTTP2:   false,
+		MaxIdleConns:        openAIWSProxyTransportMaxIdleConns,
+		MaxIdleConnsPerHost: openAIWSProxyTransportMaxIdleConnsPerHost,
+		IdleConnTimeout:     openAIWSProxyTransportIdleConnTimeout,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	if trimmed := strings.TrimSpace(proxy); trimmed != "" {
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy url: %w", err)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			transport.DialTLSContext = tlsfingerprint.NewHTTPProxyDialer(profile, u).DialTLSContext
+		case "socks5", "socks5h":
+			transport.DialTLSContext = tlsfingerprint.NewSOCKS5ProxyDialer(profile, u).DialTLSContext
+		default:
+			// https ?? / ?? scheme:tlsfingerprint ???? CONNECT+TLS,??????
+			return d.proxyHTTPClient(proxy)
+		}
+	} else {
+		transport.DialTLSContext = tlsfingerprint.NewDialer(profile, nil).DialTLSContext
+	}
+	client := &http.Client{Transport: transport}
+	d.storeProxyClient(key, client)
+	return client, nil
+}
+
+func (d *coderOpenAIWSClientDialer) cachedProxyClient(key string) *http.Client {
+	d.proxyMu.Lock()
+	defer d.proxyMu.Unlock()
+	if entry, ok := d.proxyClients[key]; ok && entry != nil && entry.client != nil {
+		entry.lastUsedUnixNano = time.Now().UnixNano()
+		d.proxyHits.Add(1)
+		return entry.client
+	}
+	return nil
+}
+
+func (d *coderOpenAIWSClientDialer) storeProxyClient(key string, client *http.Client) {
+	d.proxyMu.Lock()
+	defer d.proxyMu.Unlock()
+	now := time.Now().UnixNano()
+	d.cleanupProxyClientsLocked(now)
+	d.proxyClients[key] = &openAIWSProxyClientEntry{client: client, lastUsedUnixNano: now}
+	d.ensureProxyClientCapacityLocked()
 }
 
 func (d *coderOpenAIWSClientDialer) proxyHTTPClient(proxy string) (*http.Client, error) {

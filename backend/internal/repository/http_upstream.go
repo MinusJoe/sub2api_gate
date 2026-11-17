@@ -63,8 +63,6 @@ const (
 	// 上游域名被解析到 443 不可达的 IP 时（DNS 污染/路由异常），单个账号就要卡满
 	// 内核超时；而多账号故障转移是串行的，一次请求会阻塞数分钟且不写中间错误。
 	defaultUpstreamDialTimeout = 10 * time.Second
-	// defaultUpstreamDialKeepAlive: TCP keepalive 探测间隔，与 Go 默认值保持一致
-	defaultUpstreamDialKeepAlive = 30 * time.Second
 	// defaultUpstreamTLSHandshakeTimeout: TLS 握手超时（10秒）
 	// 与建连超时同量级，避免 TCP 已连通但对端不推进握手时无限等待
 	defaultUpstreamTLSHandshakeTimeout = 10 * time.Second
@@ -575,8 +573,8 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	settings := s.resolvePoolSettings(isolation, accountConcurrency)
 	settings = s.applyProfilePoolSettings(settings, upstreamProfile)
 	// TLS 指纹客户端使用独立的缓存键，加 "tls:" 前缀
-	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID, upstreamProtocolModeDefault)
-	poolKey := buildPoolKey(settings, upstreamProtocolModeDefault) + ":tls"
+	cacheKey, tlsPoolSuffix := tlsFingerprintCacheKeys(isolation, proxyKey, accountID, profile)
+	poolKey := buildPoolKey(settings, upstreamProtocolModeDefault) + tlsPoolSuffix
 
 	now := time.Now()
 	nowUnix := now.UnixNano()
@@ -1369,8 +1367,14 @@ func defaultPoolSettings(cfg *config.Config) poolSettings {
 // 建连没有任何超时上限，只能等内核 TCP 重传耗尽（Linux 约 130 秒）。
 func newUpstreamDialer() *net.Dialer {
 	return &net.Dialer{
-		Timeout:   defaultUpstreamDialTimeout,
-		KeepAlive: defaultUpstreamDialKeepAlive,
+		Timeout: defaultUpstreamDialTimeout,
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     upstreamKeepAliveIdle,
+			Interval: upstreamKeepAliveInterval,
+			Count:    upstreamKeepAliveCount,
+		},
+		Control: upstreamDialControl,
 	}
 }
 
@@ -1631,4 +1635,15 @@ func (d *decompressedBody) Close() error {
 		_ = rc.Close()
 	}
 	return d.closer.Close()
+}
+
+// tlsFingerprintCacheKeys ???????????????????
+//
+// ??? profile ???????:`connection_pool_isolation=proxy` ?
+// buildCacheKey ?? proxy,?? accountID,????(Anthropic ? Node.js ? ALPN?
+// OpenAI ? rustls ??)??????????;??????????????
+func tlsFingerprintCacheKeys(isolation, proxyKey string, accountID int64, profile *tlsfingerprint.Profile) (string, string) {
+	profileKey := tlsfingerprint.ProfileKey(profile)
+	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID, upstreamProtocolModeDefault) + "|fp:" + profileKey
+	return cacheKey, ":tls:" + profileKey
 }

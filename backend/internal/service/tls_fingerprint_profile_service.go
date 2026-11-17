@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
 	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 )
+
+// errTLSFingerprintProfileRepositoryMissing 表示未装配 TLS 指纹模板仓储。
+var errTLSFingerprintProfileRepositoryMissing = errors.New("tls fingerprint profile repository is not configured")
 
 // TLSFingerprintProfileRepository 定义 TLS 指纹模板的数据访问接口
 type TLSFingerprintProfileRepository interface {
@@ -65,6 +69,12 @@ func NewTLSFingerprintProfileService(
 			}
 		})
 	}
+
+	// OpenAI 出站收口 doOpenAIUpstream 只拿到 *Account，拿不到本服务实例；
+	// OpenAIGatewayService 的构造签名由 wire.go 声明、wire_gen.go 生成（本任务禁止手改），
+	// 因此按既有 SetCodexCanonicalUserAgentResolver 的模式发布进程级 resolver。
+	// wire_gen.go 中本服务先于 OpenAIGatewayService 构造，注册先于任何出站调用发生。
+	SetOpenAITLSProfileResolver(svc.ResolveTLSProfile)
 
 	return svc
 }
@@ -172,8 +182,9 @@ func (s *TLSFingerprintProfileService) getRandomProfile() *tlsfingerprint.Profil
 //
 // 逻辑：
 //  1. 未启用 TLS 指纹 → 返回 nil（不伪装）
-//  2. 启用 + 绑定了 profile_id → 从缓存查找对应 profile
-//  3. 启用 + 未绑定或找不到 → 返回空 Profile（使用代码内置默认值）
+//  2. 启用 + 绑定了 profile_id → 从缓存查找对应 profile（显式绑定对任何平台一视同仁）
+//  3. 启用 + 未绑定或找不到 → 取该平台的内置默认 profile
+//     （Anthropic → 空 Profile，dialer 用 Node.js 24.x 内置默认；OpenAI → Codex CLI rustls）
 func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsfingerprint.Profile {
 	if account == nil || !account.IsTLSFingerprintEnabled() {
 		return nil
@@ -190,7 +201,17 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 			return p
 		}
 	}
-	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值
+	return builtinTLSProfileForPlatform(account)
+}
+
+// builtinTLSProfileForPlatform 返回平台对应的内置默认 TLS Profile（无 DB 绑定时的兜底）。
+//
+// OpenAI 走官方 Codex CLI 的 rustls 指纹；其余平台保持历史行为：返回只有 Name 的空
+// Profile，dialer 在字段为空时套用内置 Node.js 24.x 默认值。
+func builtinTLSProfileForPlatform(account *Account) *tlsfingerprint.Profile {
+	if account != nil && account.IsOpenAI() {
+		return tlsfingerprint.CodexRustlsProfile()
+	}
 	return &tlsfingerprint.Profile{Name: "Built-in Default (Node.js 24.x)"}
 }
 
@@ -207,6 +228,11 @@ func (s *TLSFingerprintProfileService) refreshLocalCache(ctx context.Context) er
 }
 
 func (s *TLSFingerprintProfileService) reloadFromDB(ctx context.Context) error {
+	if s.repo == nil {
+		// 未装配仓储（单元测试 / 裁剪装配）时视为无 DB 模板，保持空 localCache，
+		// 由 ResolveTLSProfile 回落到内置默认 profile，而不是 panic。
+		return errTLSFingerprintProfileRepositoryMissing
+	}
 	profiles, err := s.repo.List(ctx)
 	if err != nil {
 		return err

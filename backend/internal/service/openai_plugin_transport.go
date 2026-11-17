@@ -16,12 +16,21 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, err
 	}
 	snapshot := snapshotCodexTicketHTTPRequest(request, account)
+	consumeOpenAIAccountRPM(account.ID)
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
+			warnOpenAITLSFingerprintBypassedByPlugin(account)
 			s.observeCodexTicketHTTPResponse(snapshot, response)
 			return response, err
 		}
+	}
+	// 插件未接管时才按账号解析 TLS Profile：解析器对未启用 enable_tls_fingerprint 的
+	// 账号（含 API Key）返回 nil，此时仍然走 s.httpUpstream.Do，与引入开关前一致。
+	if profile := openAITLSProfileFor(account); profile != nil {
+		response, err := s.httpUpstream.DoWithTLS(request, proxyURL, account.ID, account.Concurrency, profile)
+		s.observeCodexTicketHTTPResponse(snapshot, response)
+		return response, err
 	}
 	response, err := s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 	s.observeCodexTicketHTTPResponse(snapshot, response)
@@ -69,4 +78,14 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		)
 	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+}
+
+// doOpenAIUpstreamWithTLS ???????????(ticket ???)??:
+// ???? TLS ???? utls,?????? Do ???
+// ??:harvest ? req.Close=true ???????,??????,?????
+func (s *OpenAIGatewayService) doOpenAIUpstreamWithTLS(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	if profile := openAITLSProfileFor(account); profile != nil {
+		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, profile)
+	}
+	return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 }

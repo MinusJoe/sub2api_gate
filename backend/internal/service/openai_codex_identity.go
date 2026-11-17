@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
 	"github.com/MACOS-DO/sub4api/internal/pkg/openai"
 	"github.com/google/uuid"
 )
@@ -32,13 +33,94 @@ func NormalizeCodexClientVersion(version string) string {
 	return version
 }
 
+// codexClientVersionFloor 是进程级的 Codex 客户端版本下限（gateway.codex_min_client_version）。
+// 线上在跑的 gpt-6*/astra 要求更高的客户端版本，而生效版本只有一个来源（面板设置 / 自动同步）；
+// 该下限保证无论版本号来源如何漂移，出站声明的版本都不会低于下限。
+// 空串表示关闭，这是零值语义：未配置时出站身份与改动前完全一致。
+// 热路径只读，故用 atomic.Value 存字符串快照，不引入锁。
+var codexClientVersionFloor = func() *atomic.Value {
+	v := &atomic.Value{}
+	v.Store("")
+	return v
+}()
+
+// SetCodexClientVersionFloor 发布进程级 Codex 客户端版本下限。
+// 归一失败、或归一值低于上游最低门槛（codexUpstreamMinVersion）的输入一律按关闭处理：
+// 低于门槛的下限只会把版本抬到一个仍然 404 的值，等于把「配置填错」伪装成「已修复」。
+func SetCodexClientVersionFloor(floor string) {
+	raw := strings.TrimSpace(floor)
+	if raw == "" {
+		codexClientVersionFloor.Store("")
+		return
+	}
+	normalized := NormalizeCodexClientVersion(raw)
+	// Prerelease tags are not comparable: the numeric parser drops the suffix, so a
+	// floor like 0.153.4-beta.1 would clamp the identity yet keep warning "below the
+	// astra floor" forever. Require a plain numeric version instead.
+	if normalized == "" || strings.Contains(normalized, "-") || CompareVersions(normalized, codexUpstreamMinVersion) < 0 {
+		logger.LegacyPrintf("openai_codex_identity",
+			"[warn] gateway.codex_min_client_version %q ignored: require a numeric version >= %s",
+			raw, codexUpstreamMinVersion)
+		codexClientVersionFloor.Store("")
+		return
+	}
+	codexClientVersionFloor.Store(normalized)
+}
+
+// CodexClientVersionFloor 返回当前生效的进程级版本下限，空串表示未设置（关闭）。
+// 导出以便测试与诊断观察装配结果。
+func CodexClientVersionFloor() string {
+	floor, _ := codexClientVersionFloor.Load().(string)
+	return floor
+}
+
+// codexUserAgentSuffix 是 UA 的 OS/架构/终端段（例如 " (Ubuntu 26.4.0; x86_64) xterm-256color"）。
+// 默认取编译期常量；运维可用配置覆盖，以匹配真实客户端的发行版版本。
+// 只允许改这一段：客户端名与版本段仍由同一处派生，避免身份三元组自相矛盾。
+var codexUserAgentSuffix = func() *atomic.Value {
+	v := &atomic.Value{}
+	v.Store(codexCLIUserAgentSuffix)
+	return v
+}()
+
+// SetCodexUserAgentSuffix 发布 UA 的平台/终端后缀。空串恢复默认。
+// 拒绝控制字符与明显畸形的值（必须含 "(...; ...)" 与终端段），输错不影响现有身份。
+func SetCodexUserAgentSuffix(suffix string) {
+	s := strings.TrimSpace(suffix)
+	if s == "" {
+		codexUserAgentSuffix.Store(codexCLIUserAgentSuffix)
+		return
+	}
+	if len(s) > 160 || strings.ContainsAny(s, "\r\n\x00") || !strings.Contains(s, "(") || !strings.Contains(s, ";") {
+		logger.LegacyPrintf("openai_codex_identity", "[warn] ignore invalid gateway.codex_user_agent_suffix %q", suffix)
+		return
+	}
+	if !strings.HasPrefix(s, " ") {
+		s = " " + s
+	}
+	codexUserAgentSuffix.Store(s)
+}
+
+func currentCodexUserAgentSuffix() string {
+	if v, ok := codexUserAgentSuffix.Load().(string); ok && strings.TrimSpace(v) != "" {
+		return v
+	}
+	return codexCLIUserAgentSuffix
+}
+
 // buildCodexCLIUserAgent 按版本号拼出规范 Codex CLI User-Agent。
 // UA 形态只在 codexCLIUserAgentSuffix 一处定义，避免多处拼装漂移。
 func buildCodexCLIUserAgent(version string) string {
 	if version = NormalizeCodexClientVersion(version); version == "" {
 		return codexCLIUserAgent
 	}
-	return openai.CodexDefaultOriginator + "/" + version + codexCLIUserAgentSuffix
+	name := CodexIdentityModeName()
+	ua := name + "/" + version + currentCodexUserAgentSuffix()
+	if name == "codex_exec" {
+		// 实测官方 exec 模式 UA 末尾还会追加一段 (codex_exec; <version>)。
+		ua += " (" + name + "; " + version + ")"
+	}
+	return ua
 }
 
 // codexIdentityEnforcement 控制 enforceCodexIdentityHeaders 是否强制统一出站身份，
@@ -118,7 +200,7 @@ func codexCanonicalUserAgent() string {
 			return ua
 		}
 	}
-	return codexCLIUserAgent
+	return buildCodexCLIUserAgent(codexCLIVersion)
 }
 
 // codexOutboundIdentity 出站身份三元组，三者必须同源自洽：
@@ -140,7 +222,7 @@ type codexOutboundIdentity struct {
 func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 	canonical := codexCanonicalUserAgent()
 	if _, _, ok := openai.PairCodexClientIdentity(canonical); !ok {
-		canonical = codexCLIUserAgent
+		canonical = buildCodexCLIUserAgent(codexCLIVersion)
 	}
 	ua := candidateUA
 	if strings.TrimSpace(ua) == "" {
@@ -149,7 +231,7 @@ func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 	originator, pairedUA, ok := openai.PairCodexClientIdentity(ua)
 	if !ok {
 		if originator, pairedUA, ok = openai.PairCodexClientIdentity(canonical); !ok {
-			originator, pairedUA = openai.CodexCLIOriginator, codexCLIUserAgent
+			originator, pairedUA = CodexIdentityModeName(), buildCodexCLIUserAgent(codexCLIVersion)
 		}
 	}
 	// 旧配置或账号级 UA 可能仍保存 codex-tui。该身份是 sub2api 默认出口曾经
@@ -158,6 +240,12 @@ func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity {
 	// 生效版本只有一个来源：规范身份（面板版本号 → 自动同步值 → 内置常量，见
 	// SettingService.GetOpenAICodexClientVersion）。UA 与 version 头由此同源派生。
 	version := codexClientVersionFromUA(canonical)
+	// 版本下限夹逼（gateway.codex_min_client_version）：版本号来源单一，但只要它低于下限，
+	// astra 请求就会被上游按陈旧客户端拒绝。夹逼必须发生在重建 UA 之前，
+	// 这样 UA 版本段、version 头仍然由同一个 version 派生（同源，见上方注释）。
+	if floor := CodexClientVersionFloor(); floor != "" && CompareVersions(version, floor) < 0 {
+		version = floor
+	}
 	if rebuilt := openai.SetCodexUserAgentVersion(pairedUA, version); rebuilt != "" {
 		pairedUA = rebuilt
 	}
@@ -250,4 +338,23 @@ func pairCodexIdentityHeaders(h http.Header) {
 	if v := strings.TrimSpace(h.Get("version")); v != "" && CompareVersions(v, codexUpstreamMinVersion) < 0 {
 		h.Set("version", resolveCodexOutboundIdentity("").version)
 	}
+	// The process-wide floor applies here too: deployments that keep identity enforcement
+	// disabled must not send astra traffic below the configured minimum. When no floor is
+	// configured this block is a no-op, so the relaxed mode keeps its historical shape
+	// (client User-Agent is never rewritten and a missing version header stays missing).
+	floor := CodexClientVersionFloor()
+	if floor == "" {
+		return
+	}
+	version := strings.TrimSpace(h.Get("version"))
+	if version == "" {
+		version = openai.CodexUserAgentVersion(pairedUA)
+	}
+	if version == "" || CompareVersions(version, floor) >= 0 {
+		return
+	}
+	if rebuilt := openai.SetCodexUserAgentVersion(pairedUA, floor); rebuilt != "" {
+		h.Set("user-agent", rebuilt)
+	}
+	h.Set("version", floor)
 }

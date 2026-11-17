@@ -80,6 +80,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if clientConn == nil {
 		return errors.New("client websocket is nil")
 	}
+	if err := s.rejectNonOfficialCodexClientWS(c, account, firstClientMessage); err != nil {
+		return err
+	}
 	if account == nil {
 		return errors.New("account is nil")
 	}
@@ -321,7 +324,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			normalized = next
 		}
 		accountIdentitySourceRaw := append([]byte(nil), normalized...)
-		accountScopedPayload, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(normalized, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		accountScopedPayload, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(normalized, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))
 		if scopeErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket identity metadata", scopeErr)
 		}

@@ -26,6 +26,7 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/proxyurl"
 	"github.com/MACOS-DO/sub4api/internal/pkg/proxyutil"
 	"github.com/MACOS-DO/sub4api/internal/pkg/servertiming"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/urlvalidator"
 )
 
@@ -48,6 +49,8 @@ type Options struct {
 	ValidateResolvedIP    bool          // 是否校验解析后的 IP（防止 DNS Rebinding）
 	AllowPrivateHosts     bool          // 允许私有地址解析（与 ValidateResolvedIP 一起使用）
 
+	// TLSProfile ? nil ?? utls ?????(?? ALPN ???? HTTP/1.1),??????????
+	TLSProfile *tlsfingerprint.Profile
 	// 可选的连接池参数（不设置则使用默认值）
 	MaxIdleConns        int // 最大空闲连接总数（默认 100）
 	MaxIdleConnsPerHost int // 每主机最大空闲连接（默认 10）
@@ -132,6 +135,10 @@ func buildTransport(opts Options) (*http.Transport, error) {
 	if err != nil {
 		return nil, err
 	}
+	if opts.TLSProfile != nil {
+		applyTLSFingerprintTransport(transport, parsed, opts.TLSProfile)
+		return transport, nil
+	}
 	if parsed == nil {
 		return transport, nil
 	}
@@ -144,7 +151,7 @@ func buildTransport(opts Options) (*http.Transport, error) {
 }
 
 func buildClientKey(opts Options) string {
-	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
+	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d|fp:%s",
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.ResponseHeaderTimeout.String(),
@@ -154,6 +161,7 @@ func buildClientKey(opts Options) string {
 		opts.MaxIdleConns,
 		opts.MaxIdleConnsPerHost,
 		opts.MaxConnsPerHost,
+		tlsfingerprint.ProfileKey(opts.TLSProfile),
 	)
 }
 

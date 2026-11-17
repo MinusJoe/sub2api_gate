@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/config"
@@ -190,6 +191,51 @@ func (a *Account) EffectiveLoadFactor() int {
 		return a.Concurrency
 	}
 	return 1
+}
+
+// openAIPacingMaxConcurrency 是进程级的 OpenAI 单账号调度并发上限
+// （gateway.openai_pacing_max_account_concurrency）。<=0 表示关闭，这是零值语义：
+// 未配置时调度并发与改动前完全一致。热路径只读，故用 atomic.Int64。
+// 只作用于 OpenAI 调度：EffectiveLoadFactor 被 Anthropic 共用，不能在这里改。
+var openAIPacingMaxConcurrency atomic.Int64
+
+// SetOpenAIPacingMaxConcurrency 发布 OpenAI 单账号调度并发上限。
+// <=0 一律按关闭处理（等价于未配置），避免负值在下游被当成 0 以外的语义。
+func SetOpenAIPacingMaxConcurrency(limit int) {
+	if limit <= 0 {
+		openAIPacingMaxConcurrency.Store(0)
+		return
+	}
+	openAIPacingMaxConcurrency.Store(int64(limit))
+}
+
+// OpenAISchedulingConcurrency 返回 OpenAI 调度器可用的单账号并发上限。
+// 未配置进程级上限时原样返回 Concurrency（与改动前一致）；配置后把「不限」（<=0）
+// 或高于上限的 Concurrency 压到上限，其余（1..上限）保持不变。
+// 仅用于 OpenAI 调度：不要把它喂给 EffectiveLoadFactor 等跨平台共用路径。
+func (a *Account) OpenAISchedulingConcurrency() int {
+	if a == nil {
+		return 0
+	}
+	c := a.Concurrency
+	limit := int(openAIPacingMaxConcurrency.Load())
+	if limit <= 0 {
+		return c
+	}
+	if c <= 0 || c > limit {
+		return limit
+	}
+	return c
+}
+
+// OpenAISchedulingLoadFactor ??????????????,??"?????????
+// ???????"?????;EffectiveLoadFactor ???????????
+func (a *Account) OpenAISchedulingLoadFactor() int {
+	factor := a.EffectiveLoadFactor()
+	if limit := int(openAIPacingMaxConcurrency.Load()); limit > 0 && factor > limit {
+		return limit
+	}
+	return factor
 }
 
 func (a *Account) IsSchedulable() bool {
@@ -684,6 +730,11 @@ func (a *Account) PrepareSharedSnapshot() {
 	a.modelMappingCacheShared = true
 }
 
+// SharedSnapshotCurrent 报告账号是否为 PrepareSharedSnapshot 处理过的母本，且其预解析结果对应当前的运行时模型映射版本。
+func (a *Account) SharedSnapshotCurrent() bool {
+	return a != nil && a.modelMappingCacheShared && a.modelMappingCacheRuntimeVersion == xai.RuntimeModelMappingVersion()
+}
+
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
@@ -978,7 +1029,13 @@ func (a *Account) isModelMappingSupported(requestedModel string) bool {
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
 	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
 	if a.IsOpenAIPassthroughEnabled() {
-		return true
+		if !a.IsOpenAIPassthroughModelFilterEnabled() {
+			return true
+		}
+		// Explicit opt-in filters candidates by source keys only. Forward still
+		// ignores mapping targets and preserves the passthrough request body.
+		mapping := a.GetModelMapping()
+		return len(mapping) == 0 || mappingSupportsRequestedModel(mapping, strings.TrimSpace(requestedModel))
 	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
@@ -2231,6 +2288,13 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	return false
 }
 
+// IsOpenAIPassthroughModelFilterEnabled reports the explicit opt-in to model
+// filtering during passthrough account selection. Missing or invalid values
+// preserve the default behavior of ignoring leftover model_mapping entries.
+func (a *Account) IsOpenAIPassthroughModelFilterEnabled() bool {
+	return a.IsOpenAIPassthroughEnabled() && a.Extra["openai_passthrough_model_filter"] == true
+}
+
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。
 //
 // 分类型新字段：
@@ -2443,10 +2507,8 @@ const (
 // 三态：default（跟随渠道）/ enabled（强制开启）/ disabled（强制关闭）。
 // 兼容旧 bool 值：true→enabled, false→default（并记录 debug 日志）。
 func (a *Account) GetWebSearchEmulationMode() string {
-	// OpenAI API Key accounts reach this via /v1/messages; their upstreams
-	// (DeepSeek etc. over Chat Completions) have no web_search tool.
 	if a == nil || a.Type != AccountTypeAPIKey || a.Extra == nil ||
-		(a.Platform != PlatformAnthropic && a.Platform != PlatformOpenAI) {
+		!webSearchEmulationPlatformEnabled(a.Platform) {
 		return WebSearchModeDefault
 	}
 	raw := a.Extra[featureKeyWebSearchEmulation]
@@ -2470,15 +2532,50 @@ func (a *Account) GetWebSearchEmulationMode() string {
 	}
 }
 
+// codexCLIOnlyDefault 是进程级的「仅允许 Codex 官方客户端」默认开关
+// （gateway.openai_codex_require_official_client）。默认 false = 关闭，
+// 即「不配置 = 只有账号显式开启才限制」，与改动前完全一致。
+// 热路径只读，故用 atomic.Bool。
+var codexCLIOnlyDefault atomic.Bool
+
+// SetCodexCLIOnlyDefault 发布进程级 codex_cli_only 默认开关。
+// IsCodexCLIOnlyEnabled 在网关热路径上被调用（那一层拿不到配置），
+// 故由持有配置的装配层在构造时发布进程级快照。
+func SetCodexCLIOnlyDefault(enabled bool) {
+	codexCLIOnlyDefault.Store(enabled)
+}
+
+// CodexCLIOnlyDefault 返回当前生效的进程级默认开关（未发布时为 false）。
+// 导出以便测试与诊断观察装配结果。
+func CodexCLIOnlyDefault() bool {
+	return codexCLIOnlyDefault.Load()
+}
+
+// webSearchEmulationPlatformEnabled reports whether API key accounts of the
+// platform can set the account-level web search emulation mode. Keep it in sync
+// with WEB_SEARCH_EMULATION_PLATFORMS in frontend/src/views/admin/ChannelsView.vue.
+func webSearchEmulationPlatformEnabled(platform string) bool {
+	switch platform {
+	case PlatformAnthropic, PlatformOpenAI, PlatformZhipu, PlatformCommandCode, PlatformOpenCodeGo, PlatformMiniMax:
+		return true
+	}
+	return false
+}
+
 // IsCodexCLIOnlyEnabled 返回 OpenAI OAuth 账号是否启用"仅允许 Codex 官方客户端"。
-// 字段：accounts.extra.codex_cli_only。
-// 字段缺失或类型不正确时，按 false（关闭）处理。
+// 字段：accounts.extra.codex_cli_only。三态语义：
+//   - 字段存在且为 true：开启；
+//   - 字段存在且为 false：显式关闭，不被进程级默认覆盖；
+//   - 字段缺失或类型不符：返回进程级默认（gateway.openai_codex_require_official_client，默认 false）。
 func (a *Account) IsCodexCLIOnlyEnabled() bool {
-	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
+	if a == nil || !a.IsOpenAIOAuth() {
 		return false
 	}
-	enabled, ok := a.Extra["codex_cli_only"].(bool)
-	return ok && enabled
+	// 对 nil map 取下标只会拿到零值，天然落在「缺失」分支。
+	if enabled, ok := a.Extra["codex_cli_only"].(bool); ok {
+		return enabled
+	}
+	return CodexCLIOnlyDefault()
 }
 
 // IsCodexCLIOnlyAppServerAllowed 返回 codex_cli_only 账号是否额外放行 Codex app-server
@@ -2510,12 +2607,17 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
 }
 
-// IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
-// 仅适用于 Anthropic OAuth/SetupToken 类型账号
-// 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
+// IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装。
+// 适用于 Anthropic 与 OpenAI 的 OAuth/SetupToken 账号，规则一致：
+// extra["enable_tls_fingerprint"] == true 才启用。
+//   - Anthropic 启用后模拟 Claude Code (Node.js) 的 TLS 握手特征（行为不变）；
+//   - OpenAI 启用后模拟官方 Codex CLI (rustls) 的握手特征，
+//     见 tlsfingerprint.CodexRustlsProfile（无 ALPN 扩展，只走 HTTP/1.1）。
+//
+// API Key 等其他账号类型一律返回 false（不伪装）。
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// 仅支持 Anthropic OAuth/SetupToken 账号
-	if !a.IsAnthropicOAuthOrSetupToken() {
+	// 仅支持 Anthropic / OpenAI 的 OAuth/SetupToken 账号
+	if !a.IsAnthropicOAuthOrSetupToken() && !a.IsOpenAIOAuthLike() {
 		return false
 	}
 	if a.Extra == nil {
