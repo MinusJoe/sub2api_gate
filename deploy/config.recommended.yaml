@@ -1,0 +1,654 @@
+api_key_auth_cache:
+  invalid_abuse:
+    block_seconds: 60
+    capacity: 16384
+    enabled: true
+    threshold: 120
+    window_seconds: 60
+  jitter_percent: 10
+  l1_size: 65535
+  l1_ttl_seconds: 15
+  l2_ttl_seconds: 300
+  lookup_concurrency: 64
+  negative_ttl_seconds: 30
+  singleflight: true
+api_key_create:
+  max_active_per_user: 200
+  max_per_user_per_hour: 60
+batch_image:
+  cleanup_batch_size: 100
+  cleanup_interval_minutes: 30
+  default_image_size: 1K
+  default_requeue_delay_seconds: 30
+  default_response_mime_type: image/png
+  delayed_move_limit: 100
+  delayed_mover_interval_seconds: 5
+  enabled: false
+  error_retry_delay_seconds: 60
+  idempotency_key_prefix: 'batch_image:queue:idem:'
+  inflight_key_prefix: 'batch_image:queue:inflight:'
+  inflight_ttl_seconds: 604800
+  input_retention_after_terminal_hours: 24
+  job_lock_ttl_seconds: 300
+  lock_conflict_delay_seconds: 5
+  lock_key_prefix: 'batch_image:queue:lock:'
+  max_download_bytes_per_request: 536870912
+  max_download_concurrency_per_user: 1
+  max_download_duration_seconds: 600
+  max_download_items_zip: 200
+  max_items_per_job_default: 200
+  max_items_per_job_trial: 50
+  max_output_images_per_item: 4
+  max_output_images_per_job: 200
+  max_prompt_chars_per_item: 8000
+  max_reference_images_per_job: 1000
+  max_reference_inline_bytes_per_job: 134217728
+  output_retention_after_terminal_hours: 72
+  output_retention_max_days: 7
+  queue_active_key: batch_image:queue:active
+  queue_delayed_key: batch_image:queue:delayed
+  queue_enabled: false
+  queue_ready_key: batch_image:queue:ready
+  recover_limit: 100
+  recovery_interval_seconds: 300
+  stale_active_after_seconds: 600
+  vertex_batch_prediction_base_url: ''
+  vertex_enabled: false
+  vertex_gcs_base_url: ''
+  vertex_input_retention_hours: 24
+  vertex_location: global
+  vertex_managed_gcs_bucket: ''
+  vertex_managed_gcs_prefix: batch-image/{env}/{batch_id}
+  vertex_output_retention_hours: 72
+  vertex_project_id: ''
+billing:
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    half_open_requests: 3
+    reset_timeout_seconds: 30
+  inflight_reservation:
+    default_max_tokens: 8192
+    enabled: true
+    fail_closed_on_unpriced: false
+    max_input_tokens: 200000
+    max_output_tokens: 128000
+    max_reservation_usd: 0
+    ttl_seconds: 900
+  minimum_balance_reserve: 1e-06
+  user_platform_quota_cache_ttl_seconds: 86400
+  user_platform_quota_sentinel_ttl_seconds: 3600
+concurrency:
+  ping_interval: 10
+cors:
+  allow_credentials: true
+  allowed_origins: []
+dashboard_aggregation:
+  backfill_enabled: false
+  backfill_max_days: 31
+  enabled: true
+  interval_seconds: 60
+  lookback_seconds: 120
+  recompute_days: 2
+  retention:
+    daily_days: 730
+    hourly_days: 180
+    usage_billing_dedup_days: 365
+    usage_logs_days: 90
+dashboard_cache:
+  enabled: true
+  key_prefix: 'sub2api:'
+  stats_fresh_ttl_seconds: 15
+  stats_refresh_timeout_seconds: 30
+  stats_ttl_seconds: 30
+database:
+  conn_max_idle_time_minutes: 5
+  conn_max_lifetime_minutes: 30
+  dbname: sub2api
+  host: localhost
+  max_idle_conns: 128
+  max_open_conns: 256
+  password: postgres
+  port: 5432
+  sslmode: prefer
+  user: postgres
+  user_platform_quota_flush_batch_size: 1000
+  user_platform_quota_flush_interval_ms: 2000
+  user_platform_quota_flusher_enabled: false
+default:
+  admin_email: ''
+  admin_password: ''
+  api_key_prefix: sk-
+  rate_multiplier: 1
+  user_balance: 0
+  user_concurrency: 5
+dingtalk_connect:
+  app_type: public
+  attribute_sync_fields: []
+  attribute_sync_overwrite_policy: ''
+  authorize_url: https://login.dingtalk.com/oauth2/auth
+  bypass_registration: false
+  client_id: ''
+  client_secret: ''
+  corp_restriction_policy: none
+  dingtalk_app_kind: internal_app
+  enable_attribute_matching: false
+  enable_attribute_sync: false
+  enabled: false
+  frontend_redirect_url: /auth/dingtalk/callback
+  internal_corp_id: ''
+  redirect_url: ''
+  require_email: true
+  scopes: openid
+  sync_corp_email: false
+  sync_corp_email_attr_key: ''
+  sync_corp_email_attr_name: ''
+  sync_dept: false
+  sync_dept_attr_key: ''
+  sync_dept_attr_name: ''
+  sync_display_name: false
+  sync_display_name_attr_key: ''
+  sync_display_name_attr_name: ''
+  token_url: https://api.dingtalk.com/v1.0/oauth2/userAccessToken
+  userinfo_url: https://api.dingtalk.com/v1.0/contact/users/me
+  username_attribute_key: ''
+  username_overwrite_policy: if_empty
+gateway:
+  antigravity_extra_retries: 10
+  antigravity_fallback_cooldown_minutes: 1
+  client_idle_ttl_seconds: 900
+  cn_providers:
+    balance_check_enabled: true
+    balance_check_interval_minutes: 10
+    balance_threshold: 0.5
+  codex_identity_mode: cli
+  codex_image_generation_bridge_enabled: false
+  codex_min_client_version: 0.169.0
+  codex_user_agent_suffix: (Ubuntu 26.4.0; x86_64) xterm-256color
+  concurrency_slot_ttl_minutes: 30
+  connection_pool_isolation: account_proxy
+  disable_codex_identity_enforcement: false
+  disable_codex_originator_normalization: false
+  disable_openai_transport_error_cooldown: false
+  downstream_write_timeout_seconds: 120
+  failover_on_400: false
+  force_codex_cli: false
+  forced_codex_instructions_template_file: ''
+  gemini_cached_content_max_ttl_seconds: 86400
+  gemini_debug_response_headers: false
+  grok:
+    free_quota_soft_gate_enabled: true
+    free_quota_soft_gate_percent: 95
+    free_quota_stats_cache_seconds: 60
+    free_quota_token_limit: 500000
+    free_quota_window_hours: 24
+    password_auth_enabled: false
+  grok_response_header_timeout: 120
+  idle_conn_timeout_seconds: 90
+  image_concurrency:
+    enabled: false
+    max_concurrent_requests: 0
+    max_waiting_requests: 100
+    overflow_mode: reject
+    wait_timeout_seconds: 30
+  image_nonstream_keepalive_interval: 0
+  image_stream_data_interval_timeout: 900
+  image_stream_keepalive_interval: 10
+  inject_beta_for_apikey: false
+  live:
+    max_session_duration_seconds: 3600
+  log_upstream_error_body: true
+  log_upstream_error_body_max_bytes: 2048
+  max_account_switches: 10
+  max_account_switches_gemini: 3
+  max_body_size: 268435456
+  max_conns_per_host: 1024
+  max_idle_conns: 2560
+  max_idle_conns_per_host: 120
+  max_line_size: 524288000
+  max_same_account_retries_gemini: 4
+  max_upstream_clients: 5000
+  min_output_tokens: 128
+  models_list_cache_ttl_seconds: 15
+  models_list_read_max_bytes: 8388608
+  openai_accept_language: ''
+  openai_codex_gate_extra_paths: false
+  openai_codex_require_official_client: true
+  openai_codex_ticket:
+    enabled: false
+    fail_closed: false
+    harvest_attempt_timeout_seconds: 90
+    harvest_night_end_hour: 7
+    harvest_night_multiplier: 3
+    harvest_night_start_hour: 23
+    harvest_probe_interval_seconds: 30
+    harvest_probe_jitter_ratio: 0.3
+    harvest_proxy_url: ''
+    harvest_refresh_seconds: 1800
+    harvest_retry_max_seconds: 30
+    harvest_retry_min_seconds: 10
+    models:
+    - gpt-6-astra
+    - gpt-5.6-sol
+    refresh_before_seconds: 600
+    target_length: 292
+    ttl_seconds: 3600
+  openai_compact_model: gpt-5.5
+  openai_default_timezone: Asia/Tokyo
+  openai_egress_region: jp
+  openai_first_output_timeout_seconds: 0
+  openai_high_effort_first_output_timeout_seconds: 0
+  openai_http2:
+    allow_proxy_fallback_to_http1: true
+    enabled: true
+    fallback_error_threshold: 2
+    fallback_ttl_seconds: 600
+    fallback_window_seconds: 60
+  openai_pacing_max_account_concurrency: 3
+  openai_pacing_rpm_per_account: 0
+  openai_passthrough_allow_timeout_headers: false
+  openai_proxy_stream_circuit:
+    disabled: false
+    failure_threshold: 2
+    ttl_seconds: 600
+    window_seconds: 60
+  openai_response_header_timeout: 0
+  openai_scheduler:
+    sticky_escape_enabled: true
+    sticky_escape_error_rate: 0
+    sticky_escape_ttft_ms: 0
+  openai_tls_fingerprint_default: true
+  openai_ws:
+    allow_store_recovery: false
+    apikey_enabled: true
+    apikey_max_conns_factor: 5
+    client_first_message_timeout_seconds: 30
+    client_read_limit_bytes: 67108864
+    dial_timeout_seconds: 10
+    dynamic_max_conns_by_account_concurrency_enabled: true
+    enabled: true
+    event_flush_batch_size: 1
+    event_flush_interval_ms: 10
+    fallback_cooldown_seconds: 30
+    force_http: false
+    http_bridge_enabled: true
+    http_bridge_threshold_bytes: 15728640
+    ingress_inter_turn_idle_timeout_seconds: 300
+    ingress_mode_default: ctx_pool
+    ingress_previous_response_recovery_enabled: true
+    lb_top_k: 7
+    max_conns_per_account: 128
+    max_idle_per_account: 12
+    max_ingress_connections_per_api_key: 64
+    metadata_bridge_enabled: true
+    min_idle_per_account: 4
+    mode_router_v2_enabled: false
+    oauth_enabled: true
+    oauth_max_conns_factor: 5
+    payload_log_sample_rate: 0.2
+    pool_target_utilization: 0.7
+    prewarm_cooldown_ms: 300
+    prewarm_generate_enabled: false
+    queue_limit_per_conn: 64
+    read_timeout_seconds: 900
+    responses_websockets: false
+    responses_websockets_v2: true
+    retry_backoff_initial_ms: 120
+    retry_backoff_max_ms: 2000
+    retry_jitter_ratio: 0.2
+    retry_total_budget_ms: 5000
+    scheduler_score_weights:
+      error_rate: 0.8
+      load: 1
+      previous_response: 5
+      priority: 1
+      queue: 0.7
+      quota_headroom: 0
+      reset: 0
+      session_sticky: 3
+      ttft: 0.5
+      upstream_cost: 0
+    session_hash_dual_write_old: true
+    session_hash_read_old_fallback: true
+    sticky_previous_response_ttl_seconds: 3600
+    sticky_response_id_ttl_seconds: 3600
+    sticky_session_ttl_seconds: 3600
+    store_disabled_conn_mode: strict
+    store_disabled_force_new_conn: true
+    write_timeout_seconds: 120
+  proxy_probe_response_read_max_bytes: 1048576
+  request_body_memory_budget_bytes: 1073741824
+  request_body_read_timeout_seconds: 120
+  response_header_timeout: 600
+  scheduling:
+    db_fallback_enabled: true
+    db_fallback_max_qps: 0
+    db_fallback_timeout_seconds: 0
+    fallback_max_waiting: 100
+    fallback_selection_mode: last_used
+    fallback_wait_timeout: 30s
+    full_rebuild_interval_seconds: 300
+    load_batch_cache_ttl_ms: 200
+    load_batch_enabled: true
+    outbox_backlog_rebuild_rows: 10000
+    outbox_lag_rebuild_failures: 3
+    outbox_lag_rebuild_seconds: 10
+    outbox_lag_warn_seconds: 5
+    outbox_poll_interval_seconds: 1
+    prefer_soonest_reset: false
+    slot_cleanup_interval: 30s
+    snapshot_mget_chunk_size: 128
+    snapshot_write_chunk_size: 256
+    sticky_session_max_waiting: 3
+    sticky_session_wait_timeout: 2m0s
+  session_idle_timeout_minutes: 0
+  sse_event_max_bytes: 0
+  sse_event_max_lines: 4096
+  sse_queue_max_bytes: 8388608
+  stream_data_interval_timeout: 180
+  stream_keepalive_interval: 10
+  text_max_body_size: 33554432
+  tls_fingerprint:
+    enabled: true
+  upstream_response_read_max_bytes: 134217728
+  usage_record:
+    auto_scale_check_interval_seconds: 3
+    auto_scale_cooldown_seconds: 10
+    auto_scale_down_queue_percent: 15
+    auto_scale_down_step: 16
+    auto_scale_enabled: true
+    auto_scale_max_workers: 512
+    auto_scale_min_workers: 128
+    auto_scale_up_queue_percent: 70
+    auto_scale_up_step: 32
+    overflow_policy: sync
+    overflow_sample_percent: 10
+    queue_size: 16384
+    task_timeout_seconds: 5
+    worker_count: 128
+  user_group_rate_cache_ttl_seconds: 30
+  user_message_queue:
+    cleanup_interval_seconds: 60
+    enabled: false
+    lock_ttl_ms: 120000
+    max_delay_ms: 2000
+    min_delay_ms: 200
+    mode: ''
+    wait_timeout_ms: 30000
+gemini:
+  oauth:
+    client_id: ''
+    client_secret: ''
+    scopes: ''
+  quota:
+    policy: ''
+github_oauth:
+  authorize_url: ''
+  client_id: ''
+  client_secret: ''
+  emails_url: ''
+  enabled: false
+  frontend_redirect_url: ''
+  redirect_url: ''
+  scopes: ''
+  token_url: ''
+  userinfo_url: ''
+google_oauth:
+  authorize_url: ''
+  client_id: ''
+  client_secret: ''
+  emails_url: ''
+  enabled: false
+  frontend_redirect_url: ''
+  redirect_url: ''
+  scopes: ''
+  token_url: ''
+  userinfo_url: ''
+idempotency:
+  cleanup_batch_size: 500
+  cleanup_interval_seconds: 60
+  default_ttl_seconds: 86400
+  failed_retry_backoff_seconds: 5
+  max_stored_response_len: 65536
+  observe_only: true
+  processing_timeout_seconds: 30
+  system_operation_ttl_seconds: 3600
+image_storage:
+  access_key_id: ''
+  bucket: ''
+  enabled: false
+  endpoint: ''
+  force_path_style: false
+  max_download_bytes: 33554432
+  prefix: images/
+  presign_expiry_hours: 24
+  public_base_url: ''
+  region: auto
+  secret_access_key: ''
+jwt:
+  access_token_expire_minutes: 0
+  expire_hour: 24
+  refresh_token_expire_days: 30
+  refresh_window_minutes: 2
+  secret: ''
+linuxdo_connect:
+  authorize_url: https://connect.linux.do/oauth2/authorize
+  client_id: ''
+  client_secret: ''
+  enabled: false
+  frontend_redirect_url: /auth/linuxdo/callback
+  redirect_url: ''
+  scopes: user
+  token_auth_method: client_secret_post
+  token_url: https://connect.linux.do/oauth2/token
+  use_pkce: false
+  userinfo_email_path: ''
+  userinfo_id_path: ''
+  userinfo_url: https://connect.linux.do/api/user
+  userinfo_username_path: ''
+log:
+  caller: true
+  env: production
+  format: console
+  level: info
+  output:
+    file_path: ''
+    to_file: true
+    to_stdout: true
+  rotation:
+    compress: true
+    local_time: true
+    max_age_days: 7
+    max_backups: 10
+    max_size_mb: 100
+  sampling:
+    enabled: false
+    initial: 100
+    thereafter: 100
+  service_name: sub2api
+  stacktrace_level: error
+mcp:
+  public_url: ''
+oidc_connect:
+  allowed_signing_algs: RS256,ES256,PS256
+  authorize_url: ''
+  client_id: ''
+  client_secret: ''
+  clock_skew_seconds: 120
+  discovery_url: ''
+  enabled: false
+  frontend_redirect_url: /auth/oidc/callback
+  issuer_url: ''
+  jwks_url: ''
+  provider_name: OIDC
+  redirect_url: ''
+  require_email_verified: false
+  scopes: openid email profile
+  token_auth_method: client_secret_post
+  token_url: ''
+  use_pkce: true
+  userinfo_email_path: ''
+  userinfo_id_path: ''
+  userinfo_url: ''
+  userinfo_username_path: ''
+  validate_id_token: true
+ops:
+  aggregation:
+    enabled: true
+  cleanup:
+    enabled: true
+    error_log_retention_days: 30
+    hourly_metrics_retention_days: 30
+    minute_metrics_retention_days: 30
+    schedule: 0 2 * * *
+    system_log_retention_days: 30
+  enabled: true
+  metrics_collector_cache:
+    enabled: true
+    ttl: 1m5s
+  use_preaggregated_tables: true
+plugins:
+  allow_unsigned: false
+  data_dir: ''
+  max_uncompressed_bytes: 268435456
+  max_upload_bytes: 134217728
+  start_timeout_seconds: 15
+  trusted_publishers: {}
+pricing:
+  data_dir: ./data
+  fallback_file: ./resources/model-pricing/model_prices_and_context_window.json
+  hash_check_interval_minutes: 10
+  hash_url: https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256
+  override_file: ''
+  remote_url: https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json
+  update_interval_hours: 24
+rate_limit:
+  oauth_401_cooldown_minutes: 10
+  overload_cooldown_minutes: 10
+redis:
+  db: 0
+  dial_timeout_seconds: 5
+  enable_tls: false
+  host: localhost
+  min_idle_conns: 128
+  password: ''
+  pool_size: 1024
+  port: 6379
+  read_timeout_seconds: 3
+  username: ''
+  write_timeout_seconds: 3
+run_mode: standard
+security:
+  csp:
+    enabled: true
+    policy: 'default-src ''self''; worker-src ''self'' blob:; script-src ''self'' __CSP_NONCE__ https://challenges.cloudflare.com https://*.alicdn.com https://static.cloudflareinsights.com https://turing.captcha.qcloud.com
+      https://turing.captcha.gtimg.com https://ca.turing.captcha.qcloud.com https://global.turing.captcha.gtimg.com https://www.tycaptcha.com https://cloudcache.tencentcs.com https://*.stripe.com https://static.airwallex.com
+      https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src ''self'' ''unsafe-inline'' https://*.captcha.gtimg.com https://fonts.googleapis.com
+      https://*.alicdn.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src ''self'' data: blob: https:; font-src
+      ''self'' data: https://fonts.gstatic.com; connect-src ''self'' https://turing.captcha.qcloud.com https://www.tycaptcha.com https://rce.tencentrio.com https:; frame-src ''self'' https://challenges.cloudflare.com
+      https://turing.captcha.qcloud.com https://ca.turing.captcha.qcloud.com https://www.tycaptcha.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors
+      ''none''; base-uri ''self''; form-action ''self'''
+  proxy_fallback:
+    allow_direct_on_error: false
+  proxy_probe:
+    insecure_skip_verify: false
+  response_headers:
+    additional_allowed: []
+    enabled: true
+    force_remove: []
+  trust_forwarded_ip_for_api_key_acl: true
+  url_allowlist:
+    allow_insecure_http: true
+    allow_private_hosts: true
+    crs_hosts: []
+    enabled: false
+    pricing_hosts:
+    - raw.githubusercontent.com
+    upstream_hosts:
+    - api.openai.com
+    - api.anthropic.com
+    - api.kimi.com
+    - api.kimi.ai
+    - api.moonshot.ai
+    - api.moonshot.cn
+    - open.bigmodel.cn
+    - api.minimaxi.com
+    - api.minimax.io
+    - opencode.ai
+    - generativelanguage.googleapis.com
+    - cloudcode-pa.googleapis.com
+    - '*.openai.azure.com'
+server:
+  enable_server_timing: false
+  frontend_url: ''
+  h2c:
+    enabled: false
+    idle_timeout: 75
+    max_concurrent_streams: 50
+    max_read_frame_size: 1048576
+    max_upload_buffer_per_connection: 2097152
+    max_upload_buffer_per_stream: 524288
+  host: 0.0.0.0
+  idle_timeout: 120
+  max_header_bytes: 65536
+  max_request_body_size: 268435456
+  mode: release
+  port: 8080
+  read_header_timeout: 10
+simple_mode:
+  auto_create_default_groups: true
+simple_mode_key_rate_limit_enabled: false
+subscription_cache:
+  jitter_percent: 10
+  l1_size: 16384
+  l1_ttl_seconds: 10
+subscription_maintenance:
+  queue_size: 1024
+  worker_count: 2
+timezone: Asia/Tokyo
+token_refresh:
+  attempt_timeout_seconds: 15
+  candidate_page_size: 200
+  check_interval_minutes: 5
+  cycle_timeout_seconds: 240
+  enabled: true
+  max_retries: 3
+  provider_concurrency: 4
+  provider_failure_threshold: 3
+  provider_qps: 2
+  refresh_before_expiry_hours: 0.5
+  retry_backoff_seconds: 2
+totp:
+  encryption_key: ''
+turnstile:
+  required: false
+update:
+  proxy_url: ''
+usage_cleanup:
+  batch_size: 5000
+  enabled: true
+  max_range_days: 31
+  task_timeout_seconds: 1800
+  worker_interval_seconds: 10
+webauthn:
+  enabled: false
+  rp_display_name: Sub2API
+  rp_id: ''
+  rp_origins: []
+wechat_connect:
+  app_id: ''
+  app_secret: ''
+  enabled: false
+  frontend_redirect_url: /auth/wechat/callback
+  mobile_app_id: ''
+  mobile_app_secret: ''
+  mobile_enabled: false
+  mode: open
+  mp_app_id: ''
+  mp_app_secret: ''
+  mp_enabled: false
+  open_app_id: ''
+  open_app_secret: ''
+  open_enabled: false
+  redirect_url: ''
+  scopes: snsapi_login

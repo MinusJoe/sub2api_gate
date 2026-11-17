@@ -1,0 +1,79 @@
+networks:
+    1panel-network:
+        external: true
+
+services:
+  sub2api:
+    container_name: ${CONTAINER_NAME}
+
+    # 二选一：
+    # ① GHCR 发布/dev 镜像（私有包需先 docker login ghcr.io）
+    # ② 服务器上自己构建的 tag，例如 sub2api:1.1.17
+    image: ${SUB2API_IMAGE:-ghcr.io/minusjoe/sub2api_gate:1.1.17}
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          cpus: ${CPUS}
+          memory: ${MEMORY_LIMIT}
+
+    environment:
+      - AUTO_SETUP=true
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_MODE=${SERVER_MODE}
+      - RUN_MODE=${RUN_MODE}
+      - DATABASE_HOST=${PANEL_DB_HOST}
+      - DATABASE_PORT=${PANEL_DB_PORT}
+      - DATABASE_USER=${PANEL_DB_USER}
+      - DATABASE_PASSWORD=${PANEL_DB_USER_PASSWORD}
+      - DATABASE_DBNAME=${PANEL_DB_NAME}
+      - DATABASE_SSLMODE=disable
+      - REDIS_HOST=${PANEL_REDIS_HOST}
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${PANEL_REDIS_ROOT_PASSWORD}
+      - REDIS_DB=0
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRE_HOUR=24
+      - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
+      - TZ=Asia/Tokyo
+      - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
+      # 业务参数统一放 ./data/config.yaml（见 deploy/config.recommended.yaml）。
+      # 环境变量优先级高于文件，两处都写时改文件不会生效。
+
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 30s
+      timeout: 10s
+      test:
+        - CMD
+        - wget
+        - -q
+        - -T
+        - "5"
+        - -O
+        - /dev/null
+        - http://localhost:8080/health
+
+    labels:
+      createdBy: Apps
+
+    networks:
+      - 1panel-network
+
+    ports:
+      - ${HOST_IP}:${PANEL_APP_PORT_HTTP}:8080
+
+    volumes:
+      - ./data:/app/data
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

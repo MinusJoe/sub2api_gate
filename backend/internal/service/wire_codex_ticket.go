@@ -167,6 +167,7 @@ func applyCodexOutboundConfig(cfg *config.Config) {
 	SetCodexCLIOnlyDefault(cfg.Gateway.OpenAICodexRequireOfficialClient)
 	SetCodexUserAgentSuffix(cfg.Gateway.CodexUserAgentSuffix)
 	SetCodexIdentityMode(cfg.Gateway.CodexIdentityMode)
+	SetOpenAITLSFingerprintDefault(cfg.Gateway.OpenAITLSFingerprintDefault)
 	SetOpenAIPacingMaxConcurrency(cfg.Gateway.OpenAIPacingMaxAccountConcurrency)
 	SetOpenAIPacingRPM(cfg.Gateway.OpenAIPacingRPM)
 	if cfg.Gateway.OpenAICodexTicket.Enabled {

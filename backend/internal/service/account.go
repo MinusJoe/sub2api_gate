@@ -2616,19 +2616,23 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 //
 // API Key 等其他账号类型一律返回 false（不伪装）。
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// 仅支持 Anthropic / OpenAI 的 OAuth/SetupToken 账号
-	if !a.IsAnthropicOAuthOrSetupToken() && !a.IsOpenAIOAuthLike() {
+	if a == nil {
 		return false
 	}
-	if a.Extra == nil {
-		return false
-	}
-	if v, ok := a.Extra["enable_tls_fingerprint"]; ok {
-		if enabled, ok := v.(bool); ok {
-			return enabled
+	// Anthropic 保持原语义：只有账号显式开启才生效，不受 OpenAI 默认值影响。
+	if a.IsAnthropicOAuthOrSetupToken() {
+		if a.Extra == nil {
+			return false
 		}
+		if v, ok := a.Extra["enable_tls_fingerprint"]; ok {
+			if enabled, ok := v.(bool); ok {
+				return enabled
+			}
+		}
+		return false
 	}
-	return false
+	// OpenAI：extra 显式值优先，未设置时跟随进程级默认（默认 false = 行为不变）。
+	return resolveOpenAITLSFingerprintEnabled(a, OpenAITLSFingerprintDefault())
 }
 
 // GetTLSFingerprintProfileID 获取账号绑定的 TLS 指纹模板 ID

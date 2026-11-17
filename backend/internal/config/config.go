@@ -1138,6 +1138,9 @@ type GatewayConfig struct {
 	// CodexIdentityMode 声明出站身份模式：cli（默认，codex_cli_rs）或 exec（codex_exec）。
 	// 两种都是官方客户端；与版本、UA 平台段必须同源，选择取决于下游真实用法。
 	CodexIdentityMode string `mapstructure:"codex_identity_mode"`
+	// OpenAITLSFingerprintDefault 是 OpenAI OAuth 账号的指纹进程级默认开关。
+	// 账号 extra.enable_tls_fingerprint 优先；未设置时跟随该默认值。
+	OpenAITLSFingerprintDefault bool `mapstructure:"openai_tls_fingerprint_default"`
 	// CodexMinClientVersion: Codex 客户端版本全局下限（默认空 = 关闭）。
 	// 生效版本低于该值时抬到下限：线上 gpt-6*/astra 要求更高的客户端版本；
 	// 版本号来源（面板设置 / 自动同步）漂移时靠它兜住，出站 UA 版本段随之重建。
@@ -2600,6 +2603,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_min_client_version", "")
 	viper.SetDefault("gateway.codex_user_agent_suffix", "")
 	viper.SetDefault("gateway.codex_identity_mode", "")
+	viper.SetDefault("gateway.openai_tls_fingerprint_default", false)
 	viper.SetDefault("gateway.openai_codex_require_official_client", false)
 	viper.SetDefault("gateway.openai_codex_gate_extra_paths", false)
 	viper.SetDefault("gateway.openai_pacing_max_account_concurrency", 0)
