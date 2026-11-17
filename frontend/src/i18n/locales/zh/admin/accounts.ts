@@ -1392,7 +1392,7 @@ export default {
         },
         tlsFingerprint: {
           label: 'TLS 指纹模拟',
-          hint: '模拟 Node.js/Claude Code 客户端的 TLS 指纹',
+          hint: '模拟官方客户端（Codex CLI / Claude Code）的 TLS 指纹',
           defaultProfile: '内置默认',
           randomProfile: '随机'
         },
