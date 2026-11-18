@@ -72,9 +72,10 @@ func (t observedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	)
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
 		var value uint32 = unobserved
-		if req.URL.Scheme == "http" {
+		switch req.URL.Scheme {
+		case "http":
 			value = plainHTTP
-		} else if req.URL.Scheme == "https" {
+		case "https":
 			switch conn := info.Conn.(type) {
 			case *fingerprintedConn:
 				value = customTLS
