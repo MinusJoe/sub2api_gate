@@ -940,6 +940,27 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
   })
 
+  it.each([['inherit', undefined], ['on', true], ['off', false]])('submits the selected TLS mode %j for Codex session imports', async (mode, expected) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    const tlsMode = wrapper.get<HTMLSelectElement>('[data-testid="openai-tls-fingerprint-mode"]')
+    expect(tlsMode.element.value).toBe('inherit')
+    await tlsMode.setValue(mode)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+    const extra = importCodexSessionMock.mock.calls[0][0].extra
+    if (expected === undefined) {
+      expect(extra).not.toHaveProperty('enable_tls_fingerprint')
+    } else {
+      expect(extra).toHaveProperty('enable_tls_fingerprint', expected)
+    }
+    wrapper.unmount()
+  })
+
   it('leaves Codex PAT import billing ownership to the backend', async () => {
     const wrapper = await openCodexImportStep()
     await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')

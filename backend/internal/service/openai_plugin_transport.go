@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 	"net/http"
+
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 )
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
@@ -20,6 +22,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
+			tlsfingerprint.SetResponseStatus(response, request, tlsfingerprint.StatusPlugin)
 			warnOpenAITLSFingerprintBypassedByPlugin(account)
 			s.observeCodexTicketHTTPResponse(snapshot, response)
 			return response, err
@@ -65,6 +68,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
+			tlsfingerprint.SetResponseStatus(response, request, tlsfingerprint.StatusPlugin)
 			return response, err
 		}
 	}

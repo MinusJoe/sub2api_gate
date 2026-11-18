@@ -13,6 +13,7 @@ import (
 
 	"github.com/MACOS-DO/sub4api/internal/pkg/antigravity"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 )
 
@@ -459,6 +460,7 @@ handleSuccess:
 
 	return &ForwardResult{
 		RequestID:                     requestID,
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
 		Model:                         originalModel,

@@ -8,6 +8,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageLogTLSFingerprintIsAdminOnly(t *testing.T) {
+	log := &service.UsageLog{TLSFingerprintStatus: "standard"}
+	data, err := json.Marshal(UsageLogFromServiceAdmin(log))
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"tls_fingerprint_status":"standard"`)
+	data, err = json.Marshal(UsageLogFromService(log))
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "tls_fingerprint_status")
+	data, err = json.Marshal(UsageLogFromServiceAdmin(&service.UsageLog{}))
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "tls_fingerprint_status")
+}
+
 func TestUsageLogFromService_IncludesOpenAIWSMode(t *testing.T) {
 	t.Parallel()
 

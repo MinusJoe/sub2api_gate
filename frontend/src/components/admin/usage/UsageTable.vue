@@ -217,15 +217,20 @@
                 class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30"
               >{{ t('admin.usage.longContext') }}</span>
               <!-- Cost Detail Tooltip -->
-              <div
-                class="group relative"
+              <button
+                type="button"
+                class="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 hover:bg-blue-100 dark:bg-gray-700 dark:hover:bg-blue-900/50"
+                :aria-label="t('usage.costDetails')"
+                :aria-describedby="tooltipVisible && tooltipData === row ? costTooltipId : undefined"
                 @mouseenter="showTooltip($event, row)"
                 @mouseleave="hideTooltip"
+                @focus="showTooltip($event, row)"
+                @click.stop="showTooltip($event, row)"
+                @blur="hideTooltip"
+                @keydown.esc.stop="hideTooltip"
               >
-                <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors group-hover:bg-blue-100 dark:bg-gray-700 dark:group-hover:bg-blue-900/50">
-                  <Icon name="infoCircle" size="xs" class="text-gray-400 group-hover:text-blue-500 dark:text-gray-500 dark:group-hover:text-blue-400" />
-                </div>
-              </div>
+                <Icon name="infoCircle" size="xs" class="text-gray-400 group-hover:text-blue-500 dark:text-gray-500 dark:group-hover:text-blue-400" />
+              </button>
             </div>
             <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
               A ${{ accountBilled(row).toFixed(6) }}
@@ -277,6 +282,13 @@
             </button>
           </div>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-tls_fingerprint_status="{ row }">
+          <span
+            class="whitespace-nowrap text-xs"
+            :class="row.tls_fingerprint_status === 'applied' ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'"
+          >{{ t(tlsFingerprintLabel(row.tls_fingerprint_status)) }}</span>
         </template>
 
         <template #cell-upstream_request_id="{ row }">
@@ -412,6 +424,8 @@
   <Teleport to="body">
     <div
       v-if="tooltipVisible"
+      :id="costTooltipId"
+      role="tooltip"
       class="fixed z-[9999] pointer-events-none -translate-y-1/2"
       :style="{
         left: tooltipPosition.x + 'px',
@@ -506,6 +520,12 @@
             </div>
           </div>
           <!-- Rate and Summary -->
+          <div v-if="showTlsFingerprintDetails" class="flex items-center justify-between gap-6">
+            <span class="text-gray-400">{{ t('admin.usage.tlsFingerprint') }}</span>
+            <span class="font-medium" :class="tooltipData?.tls_fingerprint_status === 'applied' ? 'text-emerald-300' : 'text-white'">
+              {{ t(tlsFingerprintLabel(tooltipData?.tls_fingerprint_status)) }}
+            </span>
+          </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.serviceTier') }}</span>
             <span class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.service_tier, t) }}</span>
@@ -547,7 +567,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
+import { tlsFingerprintLabel } from '@/utils/usageTLS'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
@@ -612,6 +633,7 @@ interface Props {
   defaultSortOrder?: 'asc' | 'desc'
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
+  showTlsFingerprintDetails?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -706,6 +728,7 @@ const copyUpstreamRequestId = (upstreamRequestId: string) =>
   copyIdentifier(upstreamRequestId, t('admin.usage.upstreamRequestIdCopied'))
 
 // Tooltip state - cost
+const costTooltipId = useId()
 const tooltipVisible = ref(false)
 const tooltipPosition = ref({ x: 0, y: 0 })
 const tooltipData = ref<AdminUsageLog | null>(null)
@@ -752,7 +775,7 @@ const formatDuration = (ms: number | null | undefined): string => {
 }
 
 // Cost tooltip functions
-const showTooltip = (event: MouseEvent, row: AdminUsageLog) => {
+const showTooltip = (event: Event, row: AdminUsageLog) => {
   const target = event.currentTarget as HTMLElement
   const rect = target.getBoundingClientRect()
   tooltipData.value = row

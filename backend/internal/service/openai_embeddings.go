@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -167,14 +168,15 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
 
 	return &OpenAIForwardResult{
-		RequestID:       firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
-		UpstreamHeaders: resp.Header,
-		Usage:           extractOpenAIEmbeddingsUsage(respBody),
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:            firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+		UpstreamHeaders:      resp.Header,
+		Usage:                extractOpenAIEmbeddingsUsage(respBody),
+		Model:                originalModel,
+		BillingModel:         billingModel,
+		UpstreamModel:        upstreamModel,
+		Stream:               false,
+		Duration:             time.Since(startTime),
 	}, nil
 }
 

@@ -13,6 +13,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWSUsageFingerprintStatusSurvivesLeaseReuse(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+			if err := conn.Write(r.Context(), coderws.MessageText, []byte(`{"type":"response.completed"}`)); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	// Use a client that trusts only the fixture's local certificate.
+	dialer := &coderOpenAIWSClientDialer{proxyClients: make(map[string]*openAIWSProxyClientEntry)}
+	const clientKey = "http://fixture.invalid"
+	dialer.storeProxyClient(clientKey, server.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, _, err := dialer.Dial(ctx, "wss"+strings.TrimPrefix(server.URL, "https"), nil, clientKey)
+	require.NoError(t, err)
+	pooled := newOpenAIWSConn("test", 1, conn, nil)
+	defer pooled.close()
+	for _, reused := range []bool{false, true} {
+		require.NoError(t, pooled.acquire(ctx))
+		lease := &openAIWSConnLease{conn: pooled, reused: reused}
+		require.NoError(t, lease.WriteJSONContext(ctx, map[string]string{"type": "response.create"}))
+		_, err := lease.ReadMessageContext(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "standard", lease.tlsFingerprintStatus())
+		lease.Release()
+	}
+}
+
 func TestReadOpenAIWSClientMessage_ControlCloseFrames(t *testing.T) {
 	tests := []struct {
 		name          string

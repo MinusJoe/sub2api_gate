@@ -15,6 +15,7 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/apicompat"
 	"github.com/MACOS-DO/sub4api/internal/pkg/claude"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -351,8 +352,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			UpstreamResponseModel:         observer.Model(),
 			UpstreamResponseModelConflict: observer.Conflict(),
 			UpstreamResponseServiceTier:   observer.ServiceTier(),
-			RequestID:                     requestID, UpstreamHeaders: resp.Header, Usage: usage,
-			Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
+			RequestID:                     requestID,
+			TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
+			UpstreamHeaders:               resp.Header,
+			Usage:                         usage,
+			Model:                         originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
 			Duration: time.Since(startTime),
 		}, failure.err
 	}
@@ -399,6 +403,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		UpstreamResponseModelConflict: observer.Conflict(),
 		UpstreamResponseServiceTier:   observer.ServiceTier(),
 		RequestID:                     requestID,
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
 		Model:                         originalModel,
@@ -451,6 +456,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			UpstreamResponseModelConflict: observer.Conflict(),
 			UpstreamResponseServiceTier:   observer.ServiceTier(),
 			RequestID:                     requestID,
+			TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
 			Model:                         originalModel,

@@ -1952,7 +1952,10 @@ export interface UsageLogAccountSummary {
   name: string
 }
 
+export type TLSFingerprintStatus = 'applied' | 'standard' | 'plain' | 'plugin'
+
 export interface AdminUsageLog extends UsageLog {
+  tls_fingerprint_status?: TLSFingerprintStatus | null
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null

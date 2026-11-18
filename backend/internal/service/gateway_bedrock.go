@@ -4,6 +4,8 @@ package service
 // 请求构建、错误处理与非流式响应）。仅做代码搬迁，无任何行为变更。
 
 import (
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
+
 	"bytes"
 	"context"
 	"errors"
@@ -165,15 +167,16 @@ func (s *GatewayService) forwardBedrock(
 	}
 
 	return &ForwardResult{
-		RequestID:        resp.Header.Get("x-amzn-requestid"),
-		UpstreamHeaders:  resp.Header,
-		Usage:            *usage,
-		Model:            reqModel,
-		UpstreamModel:    mappedModel,
-		Stream:           reqStream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnect,
+		RequestID:            resp.Header.Get("x-amzn-requestid"),
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+		UpstreamHeaders:      resp.Header,
+		Usage:                *usage,
+		Model:                reqModel,
+		UpstreamModel:        mappedModel,
+		Stream:               reqStream,
+		Duration:             time.Since(startTime),
+		FirstTokenMs:         firstTokenMs,
+		ClientDisconnect:     clientDisconnect,
 	}, nil
 }
 

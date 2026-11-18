@@ -33,15 +33,18 @@ func TestUsageLogRepositoryCacheWriteTTLRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
-	for _, mode := range []string{"single", "batch", "best_effort"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct{ mode, tlsStatus string }{
+		{"single", "standard"}, {"batch", "applied"}, {"best_effort", ""},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
 			log := &service.UsageLog{
 				UserID: user.ID, APIKeyID: key.ID, AccountID: account.ID,
 				RequestID: uuid.NewString(), Model: "gpt-6-luna", InputTokens: 3,
 				CacheCreationTokens: 2399, CacheCreation30mTokens: 9, CacheCreation12hTokens: 2390,
-				CreatedAt: time.Now().UTC(),
+				TLSFingerprintStatus: tc.tlsStatus,
+				CreatedAt:            time.Now().UTC(),
 			}
-			switch mode {
+			switch tc.mode {
 			case "single":
 				inserted, err := repo.createSingle(ctx, integrationDB, log)
 				require.NoError(t, err)
@@ -57,6 +60,12 @@ func TestUsageLogRepositoryCacheWriteTTLRoundTrip(t *testing.T) {
 			stored, err := repo.GetByID(ctx, log.ID)
 			require.NoError(t, err)
 			require.Equal(t, 2399, stored.CacheCreationTokens)
+			require.Equal(t, tc.tlsStatus, stored.TLSFingerprintStatus)
+			if tc.tlsStatus == "" {
+				var missing bool
+				require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT tls_fingerprint_status IS NULL FROM usage_logs WHERE id = $1", log.ID).Scan(&missing))
+				require.True(t, missing)
+			}
 			require.Equal(t, 9, stored.CacheCreation30mTokens)
 			require.Equal(t, 2390, stored.CacheCreation12hTokens)
 			require.Zero(t, stored.CacheCreation5mTokens)

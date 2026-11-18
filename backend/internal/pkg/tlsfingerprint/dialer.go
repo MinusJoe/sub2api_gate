@@ -295,7 +295,7 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 		"cipher_suite", state.CipherSuite,
 		"alpn", state.NegotiatedProtocol)
 
-	return tlsConn, nil
+	return &fingerprintedConn{tlsConn}, nil
 }
 
 // toUTLSCurves converts uint16 slice to utls.CurveID slice.

@@ -1281,6 +1281,11 @@ export default {
         tlsFingerprint: {
           label: 'TLS Fingerprint Simulation',
           hint: 'Simulate an official client TLS fingerprint (Codex CLI / Claude Code)',
+          openAIModeHint: 'Use the gateway default or override it for this account.',
+          inheritGlobal: 'Inherit global setting',
+          enable: 'On',
+          disable: 'Off',
+          profileLabel: 'TLS fingerprint profile',
           defaultProfile: 'Built-in Default',
           randomProfile: 'Random'
         },

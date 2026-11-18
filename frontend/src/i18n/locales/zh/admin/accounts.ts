@@ -1393,6 +1393,11 @@ export default {
         tlsFingerprint: {
           label: 'TLS 指纹模拟',
           hint: '模拟官方客户端（Codex CLI / Claude Code）的 TLS 指纹',
+          openAIModeHint: '继承全局时使用网关默认设置。开启或关闭只影响当前账号。',
+          inheritGlobal: '继承全局',
+          enable: '开启',
+          disable: '关闭',
+          profileLabel: 'TLS 指纹模板',
           defaultProfile: '内置默认',
           randomProfile: '随机'
         },

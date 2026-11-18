@@ -3,6 +3,8 @@ package service
 // 本文件承载 /v1/responses 透传转发及其流式、非流式响应与错误处理。
 
 import (
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
+
 	"bufio"
 	"bytes"
 	"context"
@@ -517,6 +519,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 	forwardResult := &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		ResponseID:                    responseID,
 		Usage:                         *usage,

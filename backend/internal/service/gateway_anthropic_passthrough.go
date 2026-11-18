@@ -5,6 +5,8 @@ package service
 // 无任何行为变更。
 
 import (
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
+
 	"bufio"
 	"bytes"
 	"context"
@@ -278,6 +280,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 
 	return &ForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
 		Model:                         input.OriginalModel,

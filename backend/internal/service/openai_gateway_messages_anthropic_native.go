@@ -11,6 +11,8 @@ package service
 // （failoverOpenAIUpstreamHTTPError / handleAnthropicErrorResponse）。
 
 import (
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
+
 	"bufio"
 	"bytes"
 	"context"
@@ -278,6 +280,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         claudeUsageToOpenAIUsage(usage),
 		Model:                         originalModel,
@@ -564,6 +567,7 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	}
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         claudeUsageToOpenAIUsage(usage),
 		Model:                         originalModel,

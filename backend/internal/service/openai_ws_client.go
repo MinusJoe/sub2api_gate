@@ -155,9 +155,7 @@ func (d *coderOpenAIWSClientDialer) DialWithProfile(
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	if client != nil {
-		opts.HTTPClient = client
-	}
+	opts.HTTPClient = tlsfingerprint.ObservedClient(client)
 
 	conn, resp, err := coderws.Dial(ctx, targetURL, opts)
 	if err != nil {
@@ -182,6 +180,7 @@ func (d *coderOpenAIWSClientDialer) DialWithProfile(
 		respHeaders = cloneHeader(resp.Header)
 	}
 	wrapped.conn = conn
+	wrapped.tlsFingerprintStatus = tlsfingerprint.ResponseStatus(resp)
 	return wrapped, 0, respHeaders, nil
 }
 
@@ -374,8 +373,16 @@ func (d *coderOpenAIWSClientDialer) SnapshotTransportMetrics() OpenAIWSTransport
 }
 
 type coderOpenAIWSClientConn struct {
-	conn          *coderws.Conn
-	upstreamPings atomic.Int64
+	tlsFingerprintStatus string
+	conn                 *coderws.Conn
+	upstreamPings        atomic.Int64
+}
+
+func observedWSFingerprint(conn openAIWSClientConn) string {
+	if c, ok := conn.(*coderOpenAIWSClientConn); ok && c != nil {
+		return c.tlsFingerprintStatus
+	}
+	return ""
 }
 
 func (c *coderOpenAIWSClientConn) UpstreamPingCount() int64 {

@@ -87,6 +87,7 @@ type openAIWSAcquireRequest struct {
 
 type openAIWSHandshakeCompatibilityKey struct {
 	betaFeatures        string
+	tlsFingerprint      bool
 	codexInstallationID string
 	sessionIDHyphen     string
 	sessionIDUnderscore string
@@ -173,6 +174,13 @@ func (l *openAIWSConnLease) HandshakeHeader(name string) string {
 		return ""
 	}
 	return l.conn.handshakeHeader(name)
+}
+
+func (l *openAIWSConnLease) tlsFingerprintStatus() string {
+	if l == nil || l.conn == nil {
+		return ""
+	}
+	return observedWSFingerprint(l.conn.ws)
 }
 
 func (l *openAIWSConnLease) HandshakeHeaders() http.Header {
@@ -2375,7 +2383,8 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 
 func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
-		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
+		betaFeatures:   normalizeOpenAIWSBetaFeatures(headers),
+		tlsFingerprint: account.IsTLSFingerprintEnabled(),
 	}
 	mode := activeCodexFingerprintMode(account)
 	if mode == codexFingerprintOff {

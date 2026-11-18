@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/config"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -780,6 +781,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	}
 	return &OpenAIForwardResult{
 		RequestID:            requestIDHeader,
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:      resp.Header,
 		ResponseID:           usage.ResponseID,
 		Usage:                usage.Usage,
@@ -915,10 +917,11 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 	// official done+video.url, attach billable units so the handler can claim once
 	// (same path as status polling). Pending snapshot is merged in the handler.
 	result := &OpenAIForwardResult{
-		RequestID:       contentRequestID,
-		UpstreamHeaders: contentResp.Header,
-		ResponseHeaders: contentResp.Header.Clone(),
-		Duration:        time.Since(startTime),
+		RequestID:            contentRequestID,
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(contentResp),
+		UpstreamHeaders:      contentResp.Header,
+		ResponseHeaders:      contentResp.Header.Clone(),
+		Duration:             time.Since(startTime),
 	}
 	if billed := ExtractGrokVideoBillingFromStatusBody(statusBody, nil, requestID); billed != nil {
 		result.ResponseID = firstNonEmpty(billed.ResponseID, strings.TrimSpace(requestID))

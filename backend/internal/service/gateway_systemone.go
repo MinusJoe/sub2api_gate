@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/pkg/typesafe"
 	"github.com/gin-gonic/gin"
 )
@@ -88,6 +89,7 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 	return &SystemOneForwardResult{
 		ForwardResult: ForwardResult{
 			RequestID:             resp.Header.Get("x-request-id"),
+			TLSFingerprintStatus:  tlsfingerprint.ResponseStatus(resp),
 			UpstreamHeaders:       resp.Header.Clone(),
 			Usage:                 ClaudeUsage{InputTokens: decoded.Usage.InputTokens, OutputTokens: decoded.Usage.OutputTokens},
 			Model:                 typesafe.JevLatestModel,

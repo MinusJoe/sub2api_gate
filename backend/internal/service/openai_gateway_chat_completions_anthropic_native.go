@@ -9,6 +9,8 @@ package service
 // 状态机），仅上游发送/错误处理对齐 OpenAI 网关语义。
 
 import (
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
+
 	"bufio"
 	"context"
 	"encoding/json"
@@ -269,8 +271,11 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		_ = resp.Body.Close()
 		writeChatCompletionsError(c, http.StatusBadGateway, "server_error", failure.message)
 		return &OpenAIForwardResult{
-			RequestID: requestID, UpstreamHeaders: resp.Header, Usage: claudeUsageToOpenAIUsage(&usage),
-			Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel,
+			RequestID:            requestID,
+			TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+			UpstreamHeaders:      resp.Header,
+			Usage:                claudeUsageToOpenAIUsage(&usage),
+			Model:                originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel,
 			UpstreamEndpoint: "/v1/messages", ReasoningEffort: reasoningEffort, Duration: time.Since(startTime),
 		}, failure.err
 	}
@@ -305,16 +310,17 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            claudeUsageToOpenAIUsage(&usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		ReasoningEffort:  reasoningEffort,
-		Stream:           false,
-		Duration:         time.Since(startTime),
+		RequestID:            requestID,
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+		UpstreamHeaders:      resp.Header,
+		Usage:                claudeUsageToOpenAIUsage(&usage),
+		Model:                originalModel,
+		BillingModel:         billingModel,
+		UpstreamModel:        upstreamModel,
+		UpstreamEndpoint:     "/v1/messages",
+		ReasoningEffort:      reasoningEffort,
+		Stream:               false,
+		Duration:             time.Since(startTime),
 	}, nil
 }
 
@@ -360,18 +366,19 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:        requestID,
-			UpstreamHeaders:  resp.Header,
-			Usage:            claudeUsageToOpenAIUsage(&usage),
-			Model:            originalModel,
-			BillingModel:     billingModel,
-			UpstreamModel:    upstreamModel,
-			UpstreamEndpoint: "/v1/messages",
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			RequestID:            requestID,
+			TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+			UpstreamHeaders:      resp.Header,
+			Usage:                claudeUsageToOpenAIUsage(&usage),
+			Model:                originalModel,
+			BillingModel:         billingModel,
+			UpstreamModel:        upstreamModel,
+			UpstreamEndpoint:     "/v1/messages",
+			ReasoningEffort:      reasoningEffort,
+			Stream:               true,
+			Duration:             time.Since(startTime),
+			FirstTokenMs:         firstTokenMs,
+			ClientDisconnect:     clientDisconnected,
 		}
 	}
 

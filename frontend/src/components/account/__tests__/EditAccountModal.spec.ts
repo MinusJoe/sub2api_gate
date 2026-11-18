@@ -363,30 +363,33 @@ describe('EditAccountModal', () => {
     }
   )
 
-  it.each(['oauth', 'setup-token'])('restores the saved TLS setting when reopening an OpenAI %s account', async (type) => {
-    const account = { ...buildAccount(), platform: 'openai', type, extra: {} }
+  it.each(['oauth', 'setup-token'])('keeps each TLS mode when reopening an OpenAI %s account', async (type) => {
+    const account = { ...buildAccount(), platform: 'openai', type, enable_tls_fingerprint: true, extra: {} }
     updateAccountMock.mockReset().mockImplementation(async (_id, patch) => ({ ...account, ...patch }))
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
 
-    const tlsBlock = () => wrapper
-      .findAll('div.rounded-lg')
-      .find(block => block.text().includes('admin.accounts.quotaControl.tlsFingerprint.label'))!
-    expect(tlsBlock().find('select').exists()).toBe(false)
-    await tlsBlock().get('button').trigger('click')
+    const mode = () => wrapper.get<HTMLSelectElement>('[data-testid="openai-tls-fingerprint-mode"]')
+    const saveAndReopen = async () => {
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+      const saved = wrapper.emitted('updated')!.at(-1)![0] as typeof account
+      await wrapper.setProps({ show: false })
+      await wrapper.setProps({ show: true, account: saved })
+      return saved.extra
+    }
 
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    const saved = wrapper.emitted('updated')![0][0] as typeof account
-    expect(saved.extra).toMatchObject({ enable_tls_fingerprint: true })
-    await wrapper.setProps({ show: false })
-    await wrapper.setProps({ show: true, account: saved })
-    expect(tlsBlock().find('select').exists()).toBe(true)
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(updateAccountMock.mock.calls[1][1].extra).toMatchObject({ enable_tls_fingerprint: true })
-    await wrapper.setProps({ account: { ...account, id: account.id + 1 } })
-    expect(tlsBlock().find('select').exists()).toBe(false)
+    expect(mode().element.value).toBe('inherit')
+    await mode().setValue('on')
+    expect(await saveAndReopen()).toHaveProperty('enable_tls_fingerprint', true)
+    expect(mode().element.value).toBe('on')
+    await mode().setValue('off')
+    expect(await saveAndReopen()).toHaveProperty('enable_tls_fingerprint', false)
+    expect(mode().element.value).toBe('off')
+    expect(await saveAndReopen()).toHaveProperty('enable_tls_fingerprint', false)
+    await mode().setValue('inherit')
+    expect(await saveAndReopen()).not.toHaveProperty('enable_tls_fingerprint')
+    expect(mode().element.value).toBe('inherit')
     wrapper.unmount()
   })
 

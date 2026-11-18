@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -301,7 +302,12 @@ func (s *OpenAIGatewayService) forwardOpenAIBPS(ctx context.Context, c *gin.Cont
 	if err = s.bpsBind(ctx, r.Scope, account); err != nil {
 		return nil, err
 	}
-	result = &OpenAIForwardResult{Model: stringValue(r.Source["model"]), UpstreamModel: r.Model, BillingModel: r.Model, Stream: r.Stream, RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header.Clone(), UpstreamEndpoint: "/basispoints/api/responses", ReasoningEffort: &r.Effort}
+	result = &OpenAIForwardResult{
+		Model: stringValue(r.Source["model"]), UpstreamModel: r.Model, BillingModel: r.Model, Stream: r.Stream,
+		RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header.Clone(),
+		UpstreamEndpoint: "/basispoints/api/responses", ReasoningEffort: &r.Effort,
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+	}
 	sequence := 0
 	created := false
 	completed := false

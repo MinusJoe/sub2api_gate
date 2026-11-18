@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -111,12 +112,13 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 	upstreamID := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
 	return &OpenAIForwardResult{
 		// Forced durable money-event id so usage_billing_dedup cannot collapse under a reused client id.
-		RequestID:       StableGrokAudioBillingRequestID(upstreamID),
-		UpstreamHeaders: resp.Header,
-		Model:           baseEndpoint,
-		UpstreamModel:   baseEndpoint,
-		Duration:        time.Since(started),
-		AudioUsage:      audioUsage,
+		RequestID:            StableGrokAudioBillingRequestID(upstreamID),
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+		UpstreamHeaders:      resp.Header,
+		Model:                baseEndpoint,
+		UpstreamModel:        baseEndpoint,
+		Duration:             time.Since(started),
+		AudioUsage:           audioUsage,
 	}, nil
 }
 

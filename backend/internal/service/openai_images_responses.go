@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -1985,6 +1986,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			if imageCount > 0 {
 				return &OpenAIForwardResult{
 					RequestID:                     resp.Header.Get("x-request-id"),
+					TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 					UpstreamHeaders:               resp.Header,
 					Usage:                         usage,
 					Model:                         requestModel,
@@ -2036,6 +2038,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	imageCount = resolveBillableImageCount(imageCount, parsed.N, imageCountBillingEnabled(getAPIKeyFromContext(c)))
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
 		Model:                         requestModel,

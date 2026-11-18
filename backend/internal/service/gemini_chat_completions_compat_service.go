@@ -14,6 +14,7 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/apicompat"
 	"github.com/MACOS-DO/sub4api/internal/pkg/geminicli"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/sjson"
@@ -303,20 +304,21 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	}
 
 	return &ForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            *usage,
-		Model:            originalModel,
-		UpstreamModel:    mappedModel,
-		Stream:           clientStream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ReasoningEffort:  reasoningEffort,
-		ImageEndpoint:    imageCount > 0,
-		ImageCount:       imageCount,
-		ImageSize:        imageSize,
-		ImageInputSize:   imageInputSize,
-		ClientDisconnect: clientDisconnect,
+		RequestID:            requestID,
+		TLSFingerprintStatus: tlsfingerprint.ResponseStatus(resp),
+		UpstreamHeaders:      resp.Header,
+		Usage:                *usage,
+		Model:                originalModel,
+		UpstreamModel:        mappedModel,
+		Stream:               clientStream,
+		Duration:             time.Since(startTime),
+		FirstTokenMs:         firstTokenMs,
+		ReasoningEffort:      reasoningEffort,
+		ImageEndpoint:        imageCount > 0,
+		ImageCount:           imageCount,
+		ImageSize:            imageSize,
+		ImageInputSize:       imageInputSize,
+		ClientDisconnect:     clientDisconnect,
 
 		UpstreamPriceMultiplier: VertexUpstreamPriceMultiplier(account, mappedModel, ""),
 	}, nil

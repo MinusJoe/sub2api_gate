@@ -1106,6 +1106,42 @@ func TestOpenAIWSConnPool_AcquireReplacesIncompatibleIdleWhenMatchingBusy(t *tes
 	require.Equal(t, 3, dialer.DialCount())
 }
 
+func TestOpenAIWSConnPool_TLSOverrideDoesNotReuseIncompatibleConnection(t *testing.T) {
+	previous := OpenAITLSFingerprintDefault()
+	SetOpenAITLSFingerprintDefault(true)
+	t.Cleanup(func() { SetOpenAITLSFingerprintDefault(previous) })
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+	pool := newOpenAIWSConnPool(cfg)
+	t.Cleanup(pool.Close)
+	dialer := &openAIWSCountingDialer{}
+	pool.clientDialer = dialer
+	req := openAIWSAcquireRequest{
+		Account: &Account{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		WSURL:   "wss://example.com/v1/responses",
+	}
+	initial, err := pool.Acquire(t.Context(), req)
+	require.NoError(t, err)
+	initial.Release()
+
+	req.PreferredConnID = initial.ConnID()
+	req.Account = &Account{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"enable_tls_fingerprint": false}}
+	closedOverride, err := pool.Acquire(t.Context(), req)
+	require.NoError(t, err)
+	defer closedOverride.Release()
+	require.False(t, closedOverride.Reused())
+	require.NotEqual(t, initial.ConnID(), closedOverride.ConnID())
+	closedOverride.Release()
+
+	reused, err := pool.Acquire(t.Context(), req)
+	require.NoError(t, err)
+	defer reused.Release()
+	require.True(t, reused.Reused())
+	require.Equal(t, closedOverride.ConnID(), reused.ConnID())
+	require.Equal(t, 2, dialer.DialCount())
+}
+
 func TestOpenAIWSConnPool_AcquireForcePreferredConnUnavailable(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2

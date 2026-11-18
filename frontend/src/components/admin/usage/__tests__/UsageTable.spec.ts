@@ -112,6 +112,7 @@ const DataTableStub = {
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
+        <slot name="cell-tls_fingerprint_status" :row="row" />
       </div>
     </div>
   `,
@@ -146,6 +147,24 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('shows the observed TLS status of the selected request in its column and admin cost details', async () => {
+    const states = [undefined, 'applied', 'standard', 'plugin', 'plain'] as const
+    const wrapper = mount(UsageTable, {
+      props: { data: states.map((state, i) => ({ ...baseImageRow, request_id: String(i), tls_fingerprint_status: state })), loading: false, columns: [], showTlsFingerprintDetails: true },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    for (const [i, label] of ['tlsUnknown', 'tlsApplied', 'tlsStandard', 'tlsPlugin', 'tlsPlain'].entries()) {
+      const row = wrapper.get(`[data-request-id="${i}"]`)
+      expect(row.text()).toContain(`admin.usage.${label}`)
+      await row.get('button[aria-label="Cost Breakdown"]').trigger('click')
+      const detail = wrapper.get('[role="tooltip"]')
+      expect(detail.text()).toContain('admin.usage.tlsFingerprint')
+      expect(detail.text()).toContain(`admin.usage.${label}`)
+    }
+    await wrapper.setProps({ showTlsFingerprintDetails: false })
+    expect(wrapper.get('[role="tooltip"]').text()).not.toContain('admin.usage.tlsFingerprint')
+    wrapper.unmount()
+  })
   it('shows cache read share of all input tokens in the shared latency cell', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', input_tokens: 100, cache_read_tokens: 100, cache_creation_tokens: 200, output_tokens: 10_000 }
     const wrapper = mount(UsageTable, {

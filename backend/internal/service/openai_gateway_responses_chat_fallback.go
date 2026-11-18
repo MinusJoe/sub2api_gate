@@ -15,6 +15,7 @@ import (
 	"github.com/MACOS-DO/sub4api/internal/pkg/apicompat"
 	"github.com/MACOS-DO/sub4api/internal/pkg/logger"
 	"github.com/MACOS-DO/sub4api/internal/pkg/openai"
+	"github.com/MACOS-DO/sub4api/internal/pkg/tlsfingerprint"
 	"github.com/MACOS-DO/sub4api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -170,6 +171,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
 		Model:                         originalModel,
@@ -244,6 +246,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
+			TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 			UpstreamHeaders:               resp.Header,
 			Usage:                         scan.Usage,
 			Model:                         originalModel,
@@ -262,6 +265,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	if err := state.ValidateToolCallArguments(); err != nil {
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
+			TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 			UpstreamHeaders:               resp.Header,
 			Usage:                         scan.Usage,
 			Model:                         originalModel,
@@ -296,6 +300,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
+		TLSFingerprintStatus:          tlsfingerprint.ResponseStatus(resp),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         scan.Usage,
 		Model:                         originalModel,
