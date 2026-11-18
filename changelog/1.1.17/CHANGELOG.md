@@ -5,7 +5,7 @@
 - 面板为 OpenAI OAuth / SetupToken 账号新增「TLS 指纹模拟」开关（此前仅 Anthropic 账号可见，OpenAI 账号只能手写 SQL 才能开启 `enable_tls_fingerprint`）；同时修正开关下方中英文提示文案，改为"模拟官方客户端（Codex CLI / Claude Code）的 TLS 指纹"。
 - 新增进程级默认开关 `gateway.openai_tls_fingerprint_default`（环境变量 `GATEWAY_OPENAI_TLS_FINGERPRINT_DEFAULT`）：开启后，未显式配置账号 extra 的 OpenAI OAuth/SetupToken 账号默认启用指纹，账号 extra 写 `false` 可单独退出；代码默认值仍为 `false`。`api_key` 账号永不启用；Anthropic 保持"仅显式开启"语义不变。
 - 修复 OpenAI OAuth/SetupToken 账号的「TLS 指纹模拟」开关保存后回弹：单独写入 `enable_tls_fingerprint`，重建 extra 时保留本轮修改，并兼容读取顶层字段与 `extra` 中的已有值。
-- 新增开关保存回归测试，验证提交的账号 `extra` 包含 `enable_tls_fingerprint: true`。
+- 重新打开 OpenAI OAuth / SetupToken 账号编辑窗口时，现在会从账号详情恢复已保存的开关和模板。修复了第二次保存其他设置时可能清除已开启值的问题，回归测试覆盖“开启 → 保存 → 重开 → 再次保存”。
 - 新增 `deploy/config.recommended.yaml`（从代码默认值导出的完整配置）与 `deploy/docker-compose.recommended.yaml`（1Panel 部署样例），便于按推荐值落地。
 - 同步 `1.1.16` 已包含的 OpenAI 上游保真能力（TLS 指纹、身份三元组、版本下限、出口区域、准入边界、节律整形），本版仅补齐入口与默认值。
 

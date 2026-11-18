@@ -4932,7 +4932,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     antigravityModelMappings.value = []
   }
 
-  // Load quota control settings (Anthropic OAuth/SetupToken only)
+  loadTLSFingerprintSettings(newAccount)
   loadQuotaControlSettings(newAccount)
 
   loadTempUnschedRules(credentials)
@@ -5485,6 +5485,16 @@ function loadTempUnschedRules(credentials?: Record<string, unknown>) {
   })
 }
 
+function loadTLSFingerprintSettings(account: Account) {
+  const extra = account.extra
+  tlsFingerprintEnabled.value = typeof extra?.enable_tls_fingerprint === 'boolean'
+    ? extra.enable_tls_fingerprint
+    : account.enable_tls_fingerprint === true
+  tlsFingerprintProfileId.value = typeof extra?.tls_fingerprint_profile_id === 'number'
+    ? extra.tls_fingerprint_profile_id
+    : account.tls_fingerprint_profile_id ?? null
+}
+
 // Load quota control settings from account (Anthropic OAuth/SetupToken only)
 function loadQuotaControlSettings(account: Account) {
   // Reset all quota control state first
@@ -5499,8 +5509,6 @@ function loadQuotaControlSettings(account: Account) {
   rpmStrategy.value = 'tiered'
   rpmStickyBuffer.value = null
   userMsgQueueMode.value = ''
-  tlsFingerprintEnabled.value = false
-  tlsFingerprintProfileId.value = null
   sessionIdMaskingEnabled.value = false
   cacheTTLOverrideEnabled.value = false
   cacheTTLOverrideTarget.value = '5m'
@@ -5540,17 +5548,6 @@ function loadQuotaControlSettings(account: Account) {
 
   // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
   userMsgQueueMode.value = account.user_msg_queue_mode ?? ''
-
-  // Load TLS fingerprint setting（后端对 OpenAI 账号可能只回填 extra，需两处都读）
-  const tlsExtra = (account.extra as Record<string, unknown> | undefined) || {}
-  if (account.enable_tls_fingerprint === true || tlsExtra.enable_tls_fingerprint === true) {
-    tlsFingerprintEnabled.value = true
-  }
-  tlsFingerprintProfileId.value =
-    account.tls_fingerprint_profile_id ??
-    (typeof tlsExtra.tls_fingerprint_profile_id === 'number'
-      ? (tlsExtra.tls_fingerprint_profile_id as number)
-      : null)
 
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
