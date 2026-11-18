@@ -5541,11 +5541,16 @@ function loadQuotaControlSettings(account: Account) {
   // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
   userMsgQueueMode.value = account.user_msg_queue_mode ?? ''
 
-  // Load TLS fingerprint setting
-  if (account.enable_tls_fingerprint === true) {
+  // Load TLS fingerprint setting（后端对 OpenAI 账号可能只回填 extra，需两处都读）
+  const tlsExtra = (account.extra as Record<string, unknown> | undefined) || {}
+  if (account.enable_tls_fingerprint === true || tlsExtra.enable_tls_fingerprint === true) {
     tlsFingerprintEnabled.value = true
   }
-  tlsFingerprintProfileId.value = account.tls_fingerprint_profile_id ?? null
+  tlsFingerprintProfileId.value =
+    account.tls_fingerprint_profile_id ??
+    (typeof tlsExtra.tls_fingerprint_profile_id === 'number'
+      ? (tlsExtra.tls_fingerprint_profile_id as number)
+      : null)
 
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
@@ -6304,6 +6309,30 @@ const handleSubmit = async () => {
       updatePayload.extra = newExtra
     }
 
+    // OpenAI OAuth/SetupToken：配额控制块只对 Anthropic 生效，TLS 指纹开关需要在这里落库
+    if (
+      props.account.platform === 'openai' &&
+      (props.account.type === 'oauth' || props.account.type === 'setup-token')
+    ) {
+      const currentExtra =
+        (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) ||
+        {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (tlsFingerprintEnabled.value) {
+        newExtra.enable_tls_fingerprint = true
+        if (tlsFingerprintProfileId.value) {
+          newExtra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
+        } else {
+          delete newExtra.tls_fingerprint_profile_id
+        }
+      } else {
+        delete newExtra.enable_tls_fingerprint
+        delete newExtra.tls_fingerprint_profile_id
+      }
+      updatePayload.extra = newExtra
+    }
+
     // For Anthropic API Key accounts, handle passthrough mode + web search emulation in extra
     if (props.account.platform === 'anthropic' && props.account.type === 'apikey') {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
@@ -6328,7 +6357,11 @@ const handleSubmit = async () => {
 
     // For OpenAI OAuth/SetupToken/API Key accounts, handle passthrough mode in extra
     if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
-      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      // 优先沿用前面各平台块已经写入的 extra，避免这里用账号原值覆盖掉本轮修改
+      const currentExtra =
+        (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) ||
+        {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       newExtra.openai_request_timezone_mode = openAIRequestTimezoneMode.value
       // 跟随模式下时区由后端检测写入，不回传表单值。

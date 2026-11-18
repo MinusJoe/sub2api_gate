@@ -363,6 +363,27 @@ describe('EditAccountModal', () => {
     }
   )
 
+  it('saves enable_tls_fingerprint for OpenAI OAuth accounts', async () => {
+    const account = { ...buildAccount(), platform: 'openai', type: 'oauth', extra: {} }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const tlsBlock = wrapper
+      .findAll('div.rounded-lg')
+      .find(block => block.text().includes('admin.accounts.quotaControl.tlsFingerprint.label'))
+    expect(tlsBlock).toBeTruthy()
+    await tlsBlock!.find('button').trigger('click')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      enable_tls_fingerprint: true
+    })
+    wrapper.unmount()
+  })
+
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })
