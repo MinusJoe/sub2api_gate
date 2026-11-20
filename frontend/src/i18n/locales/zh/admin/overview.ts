@@ -1276,7 +1276,7 @@ export default {
         tierUltrafast: '强制 Ultra Fast',
         hint: '跟随请求时按客户端传入的 service_tier 转发；选择强制档位会覆盖请求值，全局 Fast/Flex 策略仍可过滤或拦截。强制 Ultra Fast 仅对 gpt-6-astra、gpt-6.1-sol 与 gpt-5.6-sol 生效，其余模型按请求原样透传。保存后新请求立即生效，已建立的 WebSocket 会话需重连。',
         forceUltrafast: '强制使用 Ultra Fast（ultrafast）',
-        ultrafastHint: '开启后，仅对支持 Ultra Fast 的模型（GPT-6 Astra、GPT-6.1 Sol）强制写入 service_tier=ultrafast，优先于"强制使用 Fast"；其他模型沿用所选服务档位。未开启"免费 Ultra Fast"时按标准价 6 倍计费，单独开启"免费 Fast"不影响 Ultra Fast 费用；需要上游账号具备 Ultra Fast 权限。',
+        ultrafastHint: '对支持的模型（包括 GPT-6 Astra 和 GPT-6.1 Sol）强制写入 service_tier=ultrafast。GPT-6.2 中，Pro 200 支持 Sol，Pro 500 支持 Sol 和 Astra；其他账号采用其目录明确提供的档位。不可用时沿用所选分组档位。免费 Ultra Fast 按标准价计费，免费 Fast 不包含 Ultra Fast。',
         free: '免费 Fast',
         freeHint: '该分组的 Fast 请求仍使用 priority 档位，但客户实际费用按同一请求的 Standard 价格计算。',
         freeUltrafast: '免费 Ultra Fast',
