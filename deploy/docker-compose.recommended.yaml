@@ -8,8 +8,8 @@ services:
 
     # 二选一：
     # ① GHCR 发布/dev 镜像（私有包需先 docker login ghcr.io）
-    # ② 服务器上自己构建的 tag，例如 sub2api:1.1.18
-    image: ${SUB2API_IMAGE:-ghcr.io/minusjoe/sub2api_gate:1.1.18}
+    # ② 服务器上自己构建的 tag，例如 sub2api:1.1.19
+    image: ${SUB2API_IMAGE:-ghcr.io/minusjoe/sub2api_gate:1.1.19}
 
     restart: always
 

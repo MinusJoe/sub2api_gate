@@ -1,13 +1,10 @@
 {
   "repository": "Wei-Shaw/sub2api",
-  "version": "0.2.24",
-  "commit": "5c2982a81b46e2142d0143d2f83c1ce9c4da1d24",
-  "previous_commit": "b0fa9f3e6eeab1968a53e1289b69daa4bb40ca2b",
-  "sub4api_repository": "MACOS-DO/sub4api",
-  "sub4api_version": "1.1.11",
-  "sub4api_commit": "fd6790fd0ef745f8f46fd91521bad8690ffab0cc",
-  "sub4api_tree": "08a5ff27fe0573cc7565bf05a6d2e4ac0cca13b5",
-  "method": "Three-way source merge of checksum-verified upstream v0.2.22 to v0.2.24, preserving fork features and existing worktree changes",
+  "version": "0.2.25",
+  "commit": "348997267d756eab5729bb6b78a275a15d18796a",
+  "previous_commit": "5c2982a81b46e2142d0143d2f83c1ce9c4da1d24",
+  "upstream_main_at_sync": "0f6671457132425d1b84f3d80536b53e02942424",
+  "method": "Three-way source merge of checksum-verified Sub2API v0.2.24 to v0.2.25; the extra upstream main commit only stamps the upstream release version. The fork release version remains independent.",
   "development_branch": "dev",
   "customizations": [
     "Current sidebar visibility switches and menu order",
@@ -26,7 +23,9 @@
     "Codex ticket admission": "Remove ticket-based scheduling and forwarding denial, including lookup failures; retain optional valid ticket injection and real cooldowns. Remove admin admission controls; legacy policy fields are ignored by requests.",
     "backend/internal/service/api_key_auth_cache_impl.go": "Use v29 for combined upstream and fork group fields",
     "tests": "Adapt upstream Fast flag cases to the fork forced_service_tier contract; preserve independent Ultra Fast scenarios",
-    "README and release workflow": "Keep fork branding and publishing workflow; update source alignment record"
+    "Account repository": "Merge upstream group metadata sync with fork-managed Codex ticket, credit and account state handling",
+    "OpenAI WebSocket pool": "Retain per-account TLS isolation alongside upstream identity header isolation",
+    "README and release workflow": "Document Wei-Shaw/sub2api as the upstream, use this fork's release and deployment URLs, and preserve the publishing workflow"
   },
   "test_compatibility": [
     "Legacy Redis projection tests verify cold-cache acceptance even when Codex ticket fields are absent, matching upstream v0.2.22 snapshot behavior",
@@ -45,7 +44,7 @@
       "scope": "Kimi-specific authorization and gateway integration only"
     }
   },
-  "sync_date": "2026-11-20",
+  "sync_date": "2026-11-24",
   "previous_conflict_resolution": {
     "README.md": "Retain fork documentation; update source version and image output guidance",
     "backend/cmd/server/VERSION": "Fork release version 1.1.14",
@@ -57,5 +56,5 @@
     "backend/internal/service/openai_bps_gateway.go": "Carry validated upstream cache-write TTL buckets into BPS billing",
     "backend/migrations": "Retain exact upstream filenames and checksums; migration identity uses the full filename"
   },
-  "release_version": "1.1.18"
+  "release_version": "1.1.19"
 }
